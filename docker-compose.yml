@@ -1,0 +1,38 @@
+services:
+  service:
+    build:
+      context: ./service
+    environment:
+      SERVICE_ADDR: ":8080"
+    ports:
+      - "8080:8080"
+
+  agent:
+    build:
+      context: ./agent
+    depends_on:
+      - service
+    environment:
+      AGENT_UDP_ADDR: ":8125"
+      SERVICE_INGEST_URL: "http://service:8080/v1/metrics"
+      AGENT_BATCH_SIZE: "20"
+      AGENT_FLUSH_INTERVAL: "1s"
+    ports:
+      - "8125:8125/udp"
+
+  generator:
+    build:
+      context: ./testapp
+    depends_on:
+      - agent
+    environment:
+      AGENT_UDP_ADDR: "agent:8125"
+      GENERATOR_RATE_PER_SECOND: "10"
+
+  webview:
+    build:
+      context: ./webview
+    depends_on:
+      - service
+    ports:
+      - "5173:80"

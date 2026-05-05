@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Custom Business Metrics</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Custom Business Metrics</h1>
+        <p>Dashboards dinamicos para metricas de negocio</p>
+      </div>
+      <div class="top-actions">
+        <div class="connection">
+          <span id="status-dot" class="dot"></span>
+          <span id="status-text">Conectando</span>
+        </div>
+        <button id="toggle-edit" type="button">Editar</button>
+        <button id="save-dashboard" class="primary" type="button">Salvar</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <label>
+          API
+          <input id="api-url" type="url" value="http://localhost:8080" />
+        </label>
+        <label>
+          Dashboard
+          <select id="dashboard-select"></select>
+        </label>
+        <div class="button-row">
+          <button id="new-dashboard" type="button">Novo</button>
+          <button id="delete-dashboard" type="button">Excluir</button>
+        </div>
+        <label>
+          Janela
+          <select id="window">
+            <option value="900">15 min</option>
+            <option value="1800" selected>30 min</option>
+            <option value="3600">1 hora</option>
+            <option value="21600">6 horas</option>
+          </select>
+        </label>
+        <label>
+          Atualizacao
+          <select id="refresh">
+            <option value="3000">3s</option>
+            <option value="5000" selected>5s</option>
+            <option value="10000">10s</option>
+            <option value="30000">30s</option>
+          </select>
+        </label>
+        <button id="refresh-now" class="primary" type="button">Atualizar</button>
+
+        <section class="editor-panel" id="editor-panel">
+          <h2>Dashboard JSON</h2>
+          <label>
+            Nome
+            <input id="dashboard-name" type="text" />
+          </label>
+          <label>
+            Descricao
+            <input id="dashboard-description" type="text" />
+          </label>
+          <label>
+            JSON
+            <textarea id="dashboard-json" spellcheck="false"></textarea>
+          </label>
+          <div class="button-row">
+            <button id="apply-json" type="button">Aplicar JSON</button>
+            <button id="add-widget" type="button">Adicionar widget</button>
+          </div>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <section class="dashboard-head">
+          <div>
+            <h2 id="dashboard-title">Dashboard</h2>
+            <p id="dashboard-copy">-</p>
+          </div>
+          <span id="last-update">-</span>
+        </section>
+
+        <section class="widget-form" id="widget-form">
+          <h2>Widget selecionado</h2>
+          <div class="form-grid">
+            <label>
+              Tipo
+              <select id="widget-type">
+                <option value="indicator">Indicador</option>
+                <option value="timeseries">Grafico temporal</option>
+                <option value="bar">Barras</option>
+                <option value="table">Tabela</option>
+                <option value="list">Lista</option>
+              </select>
+            </label>
+            <label>
+              Titulo
+              <input id="widget-title" type="text" />
+            </label>
+            <label class="wide">
+              Query
+              <input id="widget-query" type="text" placeholder="sum:installments.processed{etapa:iniciador}.as_count()" />
+            </label>
+            <label>
+              X
+              <input id="widget-x" type="number" min="0" max="11" />
+            </label>
+            <label>
+              Y
+              <input id="widget-y" type="number" min="0" />
+            </label>
+            <label>
+              W
+              <input id="widget-w" type="number" min="2" max="12" />
+            </label>
+            <label>
+              H
+              <input id="widget-h" type="number" min="2" max="8" />
+            </label>
+          </div>
+          <div class="button-row">
+            <button id="update-widget" type="button">Atualizar widget</button>
+            <button id="duplicate-widget" type="button">Duplicar</button>
+            <button id="remove-widget" type="button">Remover</button>
+          </div>
+        </section>
+
+        <section class="dashboard-grid" id="dashboard-grid"></section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

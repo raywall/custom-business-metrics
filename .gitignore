@@ -1,0 +1,9 @@
+.gocache/
+agent/agent
+service/service
+testapp/generator
+
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
