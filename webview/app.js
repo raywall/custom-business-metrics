@@ -17,6 +17,8 @@ const els = {
   grid: document.querySelector("#dashboard-grid"),
   window: document.querySelector("#window"),
   refresh: document.querySelector("#refresh"),
+  retentionDays: document.querySelector("#retention-days"),
+  saveConfig: document.querySelector("#save-config"),
   lastUpdate: document.querySelector("#last-update"),
   dot: document.querySelector("#status-dot"),
   statusText: document.querySelector("#status-text"),
@@ -37,6 +39,9 @@ const els = {
   updateWidget: document.querySelector("#update-widget"),
   duplicateWidget: document.querySelector("#duplicate-widget"),
   removeWidget: document.querySelector("#remove-widget"),
+  correlationId: document.querySelector("#correlation-id"),
+  searchCorrelation: document.querySelector("#search-correlation"),
+  correlationEvents: document.querySelector("#correlation-events"),
 };
 
 function endpoint(path, params = {}) {
@@ -55,9 +60,9 @@ async function getJSON(path, params) {
   return response.json();
 }
 
-async function sendJSON(path, body) {
+async function sendJSON(path, body, method = "POST") {
   const response = await fetch(endpoint(path), {
-    method: "POST",
+    method,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -67,7 +72,9 @@ async function sendJSON(path, body) {
 
 async function loadDashboards() {
   try {
-    state.dashboards = await getJSON("/v1/dashboards");
+    const [dashboards, config] = await Promise.all([getJSON("/v1/dashboards"), getJSON("/v1/config")]);
+    state.dashboards = dashboards;
+    els.retentionDays.value = config.retentionDays || 7;
     if (state.dashboards.length === 0) state.dashboards = [newDashboardDefinition()];
     const previous = state.dashboard?.id || state.dashboards[0].id;
     state.dashboard = state.dashboards.find((item) => item.id === previous) || state.dashboards[0];
@@ -78,6 +85,56 @@ async function loadDashboards() {
   } catch (error) {
     setStatus(false, error.message);
   }
+}
+
+async function saveConfig() {
+  try {
+    await sendJSON("/v1/config", { retentionDays: Number(els.retentionDays.value) }, "PUT");
+    setStatus(true);
+  } catch (error) {
+    setStatus(false, error.message);
+  }
+}
+
+async function searchCorrelation() {
+  const correlationID = els.correlationId.value.trim();
+  if (!correlationID) {
+    els.correlationEvents.innerHTML = `<span class="muted">Informe um correlation_id.</span>`;
+    return;
+  }
+  try {
+    const events = await getJSON("/v1/metrics/events", { [`tag.correlation_id`]: correlationID, limit: 500 });
+    renderCorrelationEvents(events);
+    setStatus(true);
+  } catch (error) {
+    setStatus(false, error.message);
+  }
+}
+
+function renderCorrelationEvents(records) {
+  if (records.length === 0) {
+    els.correlationEvents.innerHTML = `<span class="muted">Nenhum evento encontrado para esse correlation_id.</span>`;
+    return;
+  }
+  els.correlationEvents.innerHTML = records
+    .map((record) => {
+      const event = record.event;
+      const tags = Object.entries(event.tags || {})
+        .map(([key, value]) => `${key}:${value}`)
+        .join(" ");
+      return `
+        <div class="event-row">
+          <code>${formatTime(event.timestamp)}</code>
+          <div>
+            <strong>${escapeHTML(event.name)}</strong>
+            <div class="muted">${escapeHTML(event.source || "-")} · ${escapeHTML(event.step || "-")} · ${escapeHTML(event.status || "-")}</div>
+            <code>${escapeHTML(tags)}</code>
+          </div>
+          <strong>${formatValue(event.value, event.unit)}</strong>
+        </div>
+      `;
+    })
+    .join("");
 }
 
 function renderDashboardSelect() {
@@ -523,6 +580,7 @@ els.toggleEdit.addEventListener("click", () => {
   els.toggleEdit.textContent = state.editing ? "Visualizar" : "Editar";
 });
 els.saveDashboard.addEventListener("click", saveDashboard);
+els.saveConfig.addEventListener("click", saveConfig);
 els.newDashboard.addEventListener("click", () => {
   state.dashboard = newDashboardDefinition();
   state.selectedWidgetId = state.dashboard.widgets[0].id;
@@ -536,6 +594,10 @@ els.addWidget.addEventListener("click", addWidget);
 els.updateWidget.addEventListener("click", updateSelectedWidget);
 els.duplicateWidget.addEventListener("click", duplicateWidget);
 els.removeWidget.addEventListener("click", removeWidget);
+els.searchCorrelation.addEventListener("click", searchCorrelation);
+els.correlationId.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") searchCorrelation();
+});
 els.refresh.addEventListener("change", schedule);
 els.window.addEventListener("change", renderDashboard);
 els.apiUrl.addEventListener("change", loadDashboards);

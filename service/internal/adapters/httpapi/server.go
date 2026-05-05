@@ -17,19 +17,23 @@ import (
 type Server struct {
 	metrics    *application.MetricService
 	dashboards *application.DashboardService
+	config     *application.ConfigService
 	logger     *slog.Logger
 }
 
 // NewServer wires HTTP handlers to application services.
-func NewServer(metrics *application.MetricService, dashboards *application.DashboardService, logger *slog.Logger) *Server {
-	return &Server{metrics: metrics, dashboards: dashboards, logger: logger}
+func NewServer(metrics *application.MetricService, dashboards *application.DashboardService, config *application.ConfigService, logger *slog.Logger) *Server {
+	return &Server{metrics: metrics, dashboards: dashboards, config: config, logger: logger}
 }
 
 // Handler builds the HTTP router.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
+	mux.HandleFunc("GET /v1/config", s.getConfig)
+	mux.HandleFunc("PUT /v1/config", s.saveConfig)
 	mux.HandleFunc("POST /v1/metrics", s.ingest)
+	mux.HandleFunc("GET /v1/metrics/events", s.events)
 	mux.HandleFunc("GET /v1/metrics", s.summaries)
 	mux.HandleFunc("GET /v1/metrics/series", s.series)
 	mux.HandleFunc("GET /v1/dimensions", s.dimensions)
@@ -41,6 +45,19 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) getConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.config.Get())
+}
+
+func (s *Server) saveConfig(w http.ResponseWriter, r *http.Request) {
+	var req core.RuntimeConfig
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.config.Save(req))
 }
 
 func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +77,16 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]int{"accepted": len(req.Events)})
+}
+
+func (s *Server) events(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	result, err := s.metrics.Events(r.Context(), parseFilter(r), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) summaries(w http.ResponseWriter, r *http.Request) {
@@ -225,7 +252,7 @@ func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

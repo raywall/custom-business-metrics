@@ -2,6 +2,8 @@ package memory
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"sort"
 	"sync"
 	"time"
@@ -12,7 +14,7 @@ import (
 // Store is an in-memory implementation of all repository ports.
 type Store struct {
 	mu         sync.RWMutex
-	events     []core.MetricEvent
+	events     []core.MetricEventRecord
 	dashboards map[string]core.Dashboard
 }
 
@@ -21,21 +23,52 @@ func NewStore() *Store {
 	return &Store{dashboards: seedDashboards()}
 }
 
-// SaveMetrics appends metric events.
-func (s *Store) SaveMetrics(_ context.Context, events []core.MetricEvent) error {
+// SaveMetrics appends metric events using retentionDays to compute expiry.
+func (s *Store) SaveMetrics(_ context.Context, events []core.MetricEvent, retentionDays int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.events = append(s.events, events...)
+	now := time.Now().UTC()
+	expiresAt := now.Add(time.Duration(retentionDays) * 24 * time.Hour)
+	s.pruneExpiredLocked(now)
+	for _, event := range events {
+		s.events = append(s.events, core.MetricEventRecord{
+			ID:        newEventID(),
+			Event:     event,
+			ExpiresAt: expiresAt,
+		})
+	}
 	return nil
+}
+
+// ListEvents returns raw metric events that match the filter.
+func (s *Store) ListEvents(_ context.Context, filter core.MetricFilter, limit int) ([]core.MetricEventRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	s.pruneExpiredLocked(now)
+	out := make([]core.MetricEventRecord, 0, limit)
+	for _, record := range s.events {
+		if !matches(record.Event, filter) {
+			continue
+		}
+		out = append(out, record)
+		if len(out) >= limit {
+			break
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Event.Timestamp.Before(out[j].Event.Timestamp) })
+	return out, nil
 }
 
 // ListSummaries returns aggregates grouped by metric name.
 func (s *Store) ListSummaries(_ context.Context, filter core.MetricFilter) ([]core.MetricSummary, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pruneExpiredLocked(time.Now().UTC())
 
 	byKey := map[string]*core.MetricSummary{}
-	for _, event := range s.events {
+	for _, record := range s.events {
+		event := record.Event
 		if !matches(event, filter) {
 			continue
 		}
@@ -73,11 +106,13 @@ func (s *Store) ListSummaries(_ context.Context, filter core.MetricFilter) ([]co
 
 // QuerySeries returns sum/count points grouped by bucket.
 func (s *Store) QuerySeries(_ context.Context, filter core.MetricFilter, bucket time.Duration) ([]core.MetricPoint, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pruneExpiredLocked(time.Now().UTC())
 
 	byBucket := map[int64]*core.MetricPoint{}
-	for _, event := range s.events {
+	for _, record := range s.events {
+		event := record.Event
 		if !matches(event, filter) {
 			continue
 		}
@@ -101,8 +136,9 @@ func (s *Store) QuerySeries(_ context.Context, filter core.MetricFilter, bucket 
 
 // ListDimensions returns known dimension and tag values for filters.
 func (s *Store) ListDimensions(_ context.Context) (core.MetricDimensions, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pruneExpiredLocked(time.Now().UTC())
 
 	sets := map[string]map[string]struct{}{
 		"segments":  {},
@@ -112,7 +148,8 @@ func (s *Store) ListDimensions(_ context.Context) (core.MetricDimensions, error)
 		"sources":   {},
 	}
 	tagSets := map[string]map[string]struct{}{}
-	for _, event := range s.events {
+	for _, record := range s.events {
+		event := record.Event
 		add(sets["segments"], event.Segment)
 		add(sets["workflows"], event.Workflow)
 		add(sets["steps"], event.Step)
@@ -143,6 +180,24 @@ func (s *Store) ListDimensions(_ context.Context) (core.MetricDimensions, error)
 		TagKeys:   tagKeys,
 		Tags:      tags,
 	}, nil
+}
+
+func (s *Store) pruneExpiredLocked(now time.Time) {
+	kept := s.events[:0]
+	for _, record := range s.events {
+		if record.ExpiresAt.IsZero() || record.ExpiresAt.After(now) {
+			kept = append(kept, record)
+		}
+	}
+	s.events = kept
+}
+
+func newEventID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return time.Now().Format("20060102150405.000000000")
+	}
+	return hex.EncodeToString(b[:])
 }
 
 // ListDashboards returns all dashboard definitions.

@@ -54,6 +54,11 @@
             <option value="30000">30s</option>
           </select>
         </label>
+        <label>
+          Retencao em dias
+          <input id="retention-days" type="number" min="1" value="7" />
+        </label>
+        <button id="save-config" type="button">Salvar retencao</button>
         <button id="refresh-now" class="primary" type="button">Atualizar</button>
 
         <section class="editor-panel" id="editor-panel">
@@ -132,6 +137,20 @@
         </section>
 
         <section class="dashboard-grid" id="dashboard-grid"></section>
+
+        <section class="trace-panel">
+          <div class="trace-header">
+            <div>
+              <h2>Execucao por correlation_id</h2>
+              <p>Consulte os eventos brutos que compoem uma mesma jornada e2e.</p>
+            </div>
+            <div class="trace-search">
+              <input id="correlation-id" type="text" placeholder="corr-123" />
+              <button id="search-correlation" type="button">Buscar</button>
+            </div>
+          </div>
+          <div id="correlation-events" class="events-list"></div>
+        </section>
       </section>
     </main>
 

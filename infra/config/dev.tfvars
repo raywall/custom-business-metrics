@@ -7,3 +7,5 @@ container_port = 8080
 service_cpu    = 256
 service_memory = 512
 desired_count  = 1
+
+metric_retention_days = 7

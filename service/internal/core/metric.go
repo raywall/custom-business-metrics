@@ -33,6 +33,13 @@ type MetricEvent struct {
 	Timestamp time.Time         `json:"timestamp"`
 }
 
+// MetricEventRecord is a stored metric event with retention metadata.
+type MetricEventRecord struct {
+	ID        string      `json:"id"`
+	Event     MetricEvent `json:"event"`
+	ExpiresAt time.Time   `json:"expiresAt"`
+}
+
 // Validate normalizes and validates a metric event before storage.
 func (m *MetricEvent) Validate(now time.Time) error {
 	m.Name = strings.TrimSpace(m.Name)
@@ -110,6 +117,11 @@ type MetricPoint struct {
 	Bucket time.Time `json:"bucket"`
 	Value  float64   `json:"value"`
 	Count  int       `json:"count"`
+}
+
+// RuntimeConfig stores operational settings that affect ingestion and query.
+type RuntimeConfig struct {
+	RetentionDays int `json:"retentionDays"`
 }
 
 // Dashboard stores a dashboard definition managed by users.

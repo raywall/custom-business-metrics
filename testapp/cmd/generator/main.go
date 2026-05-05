@@ -27,6 +27,14 @@ type metricEvent struct {
 	Timestamp time.Time         `json:"timestamp"`
 }
 
+type journey struct {
+	CorrelationID string
+	TraceID       string
+	OrderID       string
+}
+
+var activeJourneys []journey
+
 // main sends synthetic business metrics to the UDP agent.
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -65,8 +73,13 @@ func nextEvent() metricEvent {
 	segments := []string{"EP", "OP", "INSS"}
 	journeySteps := []string{"iniciador", "step-functions-baixa", "desconto-complementar", "ressarcimento", "conciliacao", "finalizacao"}
 	results := []string{"baixa-realizada", "duplicidade", "evento-dados-invalidos", "ressarcimento-realizado", "aguardando-retentativa"}
+	services := []string{"payment-ecs", "orchestrator-stepfn", "settlement-lambda", "refund-ecs", "reconciliation-lambda", "notification-worker"}
+	envs := []string{"dev", "hom", "prod"}
 	segment := segments[mathrand.Intn(len(segments))]
 	journeyStep := journeySteps[mathrand.Intn(len(journeySteps))]
+	serviceName := services[mathrand.Intn(len(services))]
+	envName := envs[mathrand.Intn(len(envs))]
+	currentJourney := nextJourney()
 	processingCount := weightedProcessingCount()
 	result := results[mathrand.Intn(len(results))]
 	status := "success"
@@ -95,8 +108,6 @@ func nextEvent() metricEvent {
 		value = float64(50000+mathrand.Intn(900000)) / 100
 	}
 
-	traceID := newID("trace")
-	correlationID := newID("corr")
 	return metricEvent{
 		Name:      name,
 		Kind:      kind,
@@ -106,19 +117,37 @@ func nextEvent() metricEvent {
 		Workflow:  "installment-lifecycle",
 		Step:      journeyStep,
 		Status:    status,
-		Source:    "loan-core-simulator",
+		Source:    serviceName,
 		Timestamp: time.Now().UTC(),
 		Tags: map[string]string{
 			"product":          "payroll-loan",
 			"channel":          []string{"api", "batch", "partner"}[mathrand.Intn(3)],
+			"service":          serviceName,
+			"env":              envName,
 			"etapa":            journeyStep,
 			"processing_count": fmt.Sprintf("%d", processingCount),
 			"result":           result,
-			"correlation_id":   correlationID,
-			"trace_id":         traceID,
-			"parcela_id":       newID("parcela"),
+			"correlation_id":   currentJourney.CorrelationID,
+			"trace_id":         currentJourney.TraceID,
+			"parcela_id":       currentJourney.OrderID,
 		},
 	}
+}
+
+func nextJourney() journey {
+	if len(activeJourneys) < 10 || mathrand.Float64() < 0.18 {
+		activeJourneys = append(activeJourneys, journey{
+			CorrelationID: newID("corr"),
+			TraceID:       newID("trace"),
+			OrderID:       newID("parcela"),
+		})
+	}
+	index := mathrand.Intn(len(activeJourneys))
+	current := activeJourneys[index]
+	if mathrand.Float64() < 0.08 && len(activeJourneys) > 1 {
+		activeJourneys = append(activeJourneys[:index], activeJourneys[index+1:]...)
+	}
+	return current
 }
 
 func weightedProcessingCount() int {

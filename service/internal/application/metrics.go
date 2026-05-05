@@ -9,13 +9,14 @@ import (
 
 // MetricService coordinates metric ingestion and query use cases.
 type MetricService struct {
-	repo MetricRepository
-	now  func() time.Time
+	repo   MetricRepository
+	config *ConfigService
+	now    func() time.Time
 }
 
 // NewMetricService creates a metric use-case service.
-func NewMetricService(repo MetricRepository) *MetricService {
-	return &MetricService{repo: repo, now: time.Now}
+func NewMetricService(repo MetricRepository, config *ConfigService) *MetricService {
+	return &MetricService{repo: repo, config: config, now: time.Now}
 }
 
 // Ingest validates and stores metric events.
@@ -26,7 +27,16 @@ func (s *MetricService) Ingest(ctx context.Context, events []core.MetricEvent) e
 			return err
 		}
 	}
-	return s.repo.SaveMetrics(ctx, events)
+	return s.repo.SaveMetrics(ctx, events, s.config.Get().RetentionDays)
+}
+
+// Events returns raw metric events for traceability and historical validation.
+func (s *MetricService) Events(ctx context.Context, filter core.MetricFilter, limit int) ([]core.MetricEventRecord, error) {
+	normalizeFilter(&filter, s.now)
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	return s.repo.ListEvents(ctx, filter, limit)
 }
 
 // Summaries returns aggregated metric summaries.

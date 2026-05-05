@@ -15,7 +15,7 @@ O objetivo do projeto e oferecer uma base simples, modular e de baixo custo para
 O MVP possui quatro partes principais:
 
 - `agent`: recebe metricas via UDP e encaminha lotes para o service.
-- `service`: API Go responsavel por ingestao, agregacao, consulta e gestao de dashboards.
+- `service`: API Go responsavel por ingestao, armazenamento, agregacao, consulta, retencao e gestao de dashboards.
 - `webview`: interface web para visualizar, criar e editar dashboards dinamicos.
 - `testapp`: gerador sintetico de metricas para demonstrar a plataforma localmente.
 
@@ -32,7 +32,7 @@ flowchart LR
     app[Aplicacoes de negocio] -->|UDP JSON| agent[Agent Go]
     generator[Testapp geradora] -->|UDP JSON| agent
     agent -->|HTTP batch /v1/metrics| service[Service Go]
-    service --> memory[(Repositorio em memoria - MVP)]
+    service --> dynamodb[(DynamoDB / DynamoDB Local)]
     webview[Webview HTML/CSS/JS] -->|HTTP consultas| service
     webview -->|JSON dashboards| service
     terraform[Terraform] -. provisiona .-> aws[AWS ECS/Fargate]
@@ -46,7 +46,30 @@ flowchart LR
 4. A webview consulta resumos, series temporais, dimensoes, tags e dashboards pela API.
 5. Dashboards sao definidos em JSON e renderizados dinamicamente na webview.
 
-No MVP, o armazenamento e em memoria. Isso permite testar a ideia com baixa friccao. Em uma evolucao real, o adapter de memoria pode ser substituido por Timestream, DynamoDB, PostgreSQL, ClickHouse ou outro repositorio sem mudar o contrato de ingestao.
+No ambiente Docker, o armazenamento e feito com DynamoDB Local para simular o desenho previsto na AWS. O projeto ainda possui um adapter em memoria para testes e desenvolvimento rapido.
+
+## Armazenamento e Retencao
+
+O storage escolhido para o MVP na AWS e DynamoDB em modo on-demand com TTL por item.
+
+Motivos:
+
+- baixo custo operacional para workloads pequenos ou irregulares;
+- cobranca por requisicao no modo on-demand;
+- sem necessidade de provisionar capacidade inicialmente;
+- TTL nativo para expirar metricas por configuracao de retencao;
+- bom encaixe para consultas por chave, tags, `correlation_id` e historico operacional recente.
+
+Timestream continua sendo uma alternativa forte para series temporais de alta escala, mas para este MVP ele foi evitado porque o magnetic store possui cobranca minima por conta/regiao, o que pode tornar o custo inicial menos interessante para testes pequenos. S3 pode ser uma excelente camada futura de historico frio, mas exigiria indexacao adicional ou Athena para consultas operacionais.
+
+Como a retencao funciona:
+
+1. A webview chama `PUT /v1/config` com `retentionDays`.
+2. Novas metricas recebem `expires_at = now + retentionDays`.
+3. No DynamoDB, `expires_at` e usado como atributo de TTL.
+4. As consultas filtram itens expirados mesmo antes da remocao assíncrona do TTL.
+
+No Docker, a mesma tabela e criada em DynamoDB Local pelo servico `dynamodb-init`.
 
 ## Exemplo de Uso: Jornada Logistica
 
@@ -113,6 +136,7 @@ O ponto principal: as tags sao livres. A plataforma nao precisa conhecer previam
 │   ├── cmd/service
 │   └── internal
 │       ├── adapters
+│       │   ├── dynamodbstore
 │       │   ├── httpapi
 │       │   └── memory
 │       ├── application
@@ -154,7 +178,8 @@ O `service` e uma API Go com separacao em camadas:
 - `core`: modelos de dominio, como `MetricEvent`, `MetricFilter`, `Dashboard` e `DashboardWidget`;
 - `application`: casos de uso e portas de repositorio;
 - `adapters/httpapi`: handlers HTTP;
-- `adapters/memory`: repositorio em memoria usado no MVP.
+- `adapters/dynamodbstore`: repositorio persistente usando DynamoDB ou DynamoDB Local;
+- `adapters/memory`: repositorio em memoria usado em testes e desenvolvimento rapido.
 
 Funcionalidades atuais:
 
@@ -163,6 +188,8 @@ Funcionalidades atuais:
 - filtros por tags livres;
 - agrupamento por dimensao ou tag;
 - series temporais por bucket;
+- eventos brutos para auditoria por `correlation_id`;
+- configuracao runtime de retencao;
 - descoberta de dimensoes e tags conhecidas;
 - CRUD parcial de dashboards.
 
@@ -173,6 +200,8 @@ A `webview` e uma aplicacao estatica em HTML, CSS e JavaScript.
 Ela permite:
 
 - visualizar dashboards em tempo real;
+- configurar tempo de retencao em dias;
+- consultar eventos brutos por `correlation_id`;
 - criar novos dashboards;
 - editar dashboards em JSON;
 - adicionar, duplicar, remover e mover widgets;
@@ -192,6 +221,8 @@ A `testapp` gera metricas sinteticas para testar o MVP localmente. O gerador sim
 - `channel`;
 - `product`.
 
+Ela tambem simula uma execucao distribuida: varios eventos emitidos por diferentes `service` e `env` podem compartilhar o mesmo `correlation_id`, representando uma jornada e2e que atravessa multiplos servicos.
+
 Esses nomes sao apenas dados de exemplo. Em uma aplicacao real, qualquer conjunto de tags pode ser usado.
 
 ## Executando Localmente
@@ -208,6 +239,7 @@ Servicos expostos:
 - Service: `http://localhost:8080`
 - Healthcheck: `http://localhost:8080/health`
 - Agent UDP: `localhost:8125`
+- DynamoDB Local: `http://localhost:8000`
 
 Para parar:
 
@@ -280,6 +312,23 @@ Campos:
 GET /health
 ```
 
+### Configuracao Runtime
+
+```http
+GET /v1/config
+PUT /v1/config
+```
+
+Body:
+
+```json
+{
+  "retentionDays": 14
+}
+```
+
+Essa configuracao define a retencao aplicada as novas metricas ingeridas.
+
 ### Ingestao
 
 ```http
@@ -319,6 +368,22 @@ curl "http://localhost:8080/v1/metrics?name=orders.processed&groupBy=tag:result"
 curl "http://localhost:8080/v1/metrics?name=orders.processed&tagIn.processing_count=2,3,4,5"
 ```
 
+### Eventos Brutos
+
+```http
+GET /v1/metrics/events
+```
+
+Este endpoint existe para auditoria, validacao historica e reconstrucao de uma jornada e2e.
+
+Exemplos:
+
+```sh
+curl "http://localhost:8080/v1/metrics/events?limit=20"
+curl "http://localhost:8080/v1/metrics/events?tag.correlation_id=corr-123&limit=500"
+curl "http://localhost:8080/v1/metrics/events?tag.service=shipping-worker&tag.env=prod"
+```
+
 ### Series Temporais
 
 ```http
@@ -354,6 +419,30 @@ GET /v1/dashboards
 POST /v1/dashboards
 DELETE /v1/dashboards/{id}
 ```
+
+## Correlation ID e Jornadas Distribuidas
+
+Uma jornada e2e pode atravessar muitos componentes: containers em ECS, Step Functions, Lambdas, filas, workers e integracoes externas. Para entender que todos os eventos fazem parte do mesmo processamento, cada servico deve propagar uma tag comum:
+
+```json
+{
+  "tags": {
+    "correlation_id": "corr-123",
+    "trace_id": "trace-456",
+    "service": "shipping-worker",
+    "env": "prod",
+    "order_id": "order-789"
+  }
+}
+```
+
+Com isso, a plataforma permite:
+
+- consultar todos os eventos de uma execucao com `tag.correlation_id`;
+- agrupar metricas por `tag:service`;
+- separar ambientes por `tag.env`;
+- validar a ordem temporal dos eventos pelo endpoint `/v1/metrics/events`;
+- montar dashboards por servico, ambiente, resultado, etapa ou qualquer tag criada pela aplicacao.
 
 ## Filtros e Agrupamentos
 

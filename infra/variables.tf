@@ -41,3 +41,9 @@ variable "service_image" {
   description = "Container image URI for the service."
   type        = string
 }
+
+variable "metric_retention_days" {
+  description = "Default metric retention in days. DynamoDB TTL uses this value for newly ingested events."
+  type        = number
+  default     = 7
+}

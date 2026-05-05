@@ -11,7 +11,7 @@ import (
 
 func TestMetricServiceIngestAndSummaries(t *testing.T) {
 	store := memory.NewStore()
-	service := NewMetricService(store)
+	service := NewMetricService(store, NewConfigService(7))
 	service.now = func() time.Time { return time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC) }
 
 	err := service.Ingest(context.Background(), []core.MetricEvent{
@@ -36,7 +36,7 @@ func TestMetricServiceIngestAndSummaries(t *testing.T) {
 }
 
 func TestMetricServiceRejectsInvalidKind(t *testing.T) {
-	service := NewMetricService(memory.NewStore())
+	service := NewMetricService(memory.NewStore(), NewConfigService(7))
 	err := service.Ingest(context.Background(), []core.MetricEvent{{Name: "x", Kind: "histogram", Value: 1}})
 	if err == nil {
 		t.Fatal("expected validation error")
@@ -45,7 +45,7 @@ func TestMetricServiceRejectsInvalidKind(t *testing.T) {
 
 func TestMetricServiceFiltersAndGroupsByTags(t *testing.T) {
 	store := memory.NewStore()
-	service := NewMetricService(store)
+	service := NewMetricService(store, NewConfigService(7))
 	service.now = func() time.Time { return time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC) }
 
 	events := []core.MetricEvent{

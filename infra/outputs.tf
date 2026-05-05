@@ -12,3 +12,8 @@ output "public_subnet_ids" {
   description = "Public subnet ids used by the service."
   value       = aws_subnet.public[*].id
 }
+
+output "metrics_table_name" {
+  description = "DynamoDB table used for metric storage."
+  value       = aws_dynamodb_table.metrics.name
+}
