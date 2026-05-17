@@ -320,17 +320,12 @@ func seedDashboards() map[string]core.Dashboard {
 	dashboard := core.Dashboard{
 		ID:             "operations",
 		SchemaVersion:  1,
-		Name:           "Operacao de parcelas",
-		Description:    "Visao realtime de baixa e ressarcimento por segmento.",
+		Name:           "Processamentos",
+		Description:    "Visao realtime do processamento de pedidos.",
 		RefreshSeconds: 5,
 		CreatedAt:      now,
 		UpdatedAt:      now,
-		Widgets: []core.DashboardWidget{
-			{ID: "processed", Type: "indicator", Title: "Parcelas processadas", Metric: "installments.processed", Query: "sum:installments.processed{}.as_count()", Aggregation: "sum", Chart: "indicator", Layout: core.WidgetLayout{X: 0, Y: 0, W: 3, H: 2}},
-			{ID: "by-step", Type: "bar", Title: "Processamento por etapa", Metric: "installments.processed", Query: "sum:installments.processed{} by {tag:etapa}.as_count()", Aggregation: "sum", Chart: "bar", GroupBy: "tag:etapa", Layout: core.WidgetLayout{X: 3, Y: 0, W: 5, H: 3}},
-			{ID: "by-result", Type: "table", Title: "Resultados finais", Metric: "installments.result", Query: "sum:installments.processed{} by {tag:result}.as_count()", Aggregation: "sum", Chart: "table", GroupBy: "tag:result", Layout: core.WidgetLayout{X: 8, Y: 0, W: 4, H: 3}},
-			{ID: "reprocess", Type: "list", Title: "Reprocessamentos", Metric: "installments.processed", Query: "sum:installments.processed{processing_count in(2,3,4,5)} by {tag:processing_count}.as_count()", Aggregation: "sum", Chart: "list", GroupBy: "tag:processing_count", Layout: core.WidgetLayout{X: 0, Y: 3, W: 6, H: 3}},
-		},
+		Widgets:        []core.DashboardWidget{},
 	}
 	return map[string]core.Dashboard{dashboard.ID: dashboard}
 }

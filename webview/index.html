@@ -110,7 +110,7 @@
             </label>
             <label class="wide">
               Query
-              <input id="widget-query" type="text" placeholder="sum:installments.processed{etapa:iniciador}.as_count()" />
+              <input id="widget-query" type="text" placeholder="sum:routing_slip.step.completed{source:routing-slip-app}.as_count()" />
             </label>
             <label>
               X
@@ -138,21 +138,33 @@
 
         <section class="dashboard-grid" id="dashboard-grid"></section>
 
-        <section class="trace-panel">
-          <div class="trace-header">
+        <section class="process-panel">
+          <div class="process-header">
             <div>
-              <h2>Execucao por correlation_id</h2>
-              <p>Consulte os eventos brutos que compoem uma mesma jornada e2e.</p>
+              <h2>Processamentos</h2>
+              <p>Filtre por qualquer atributo usando chave:valor, como correlation_id:corr-payment-fulfillment-001 ou id_cliente:CLI-001.</p>
             </div>
-            <div class="trace-search">
-              <input id="correlation-id" type="text" placeholder="corr-123" />
-              <button id="search-correlation" type="button">Buscar</button>
+            <div class="process-search">
+              <input id="process-filter" type="text" placeholder="correlation_id:corr-payment-fulfillment-001" />
+              <button id="process-search" type="button">Filtrar</button>
             </div>
           </div>
-          <div id="correlation-events" class="events-list"></div>
+          <div id="process-summary" class="process-summary"></div>
+          <div id="process-list" class="process-list"></div>
         </section>
       </section>
     </main>
+
+    <dialog id="process-modal" class="process-modal">
+      <div class="modal-head">
+        <div>
+          <h2 id="modal-title">Processo</h2>
+          <p id="modal-copy">-</p>
+        </div>
+        <button id="modal-close" type="button">Fechar</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+    </dialog>
 
     <script src="./app.js"></script>
   </body>

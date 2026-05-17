@@ -4,6 +4,7 @@ const state = {
   selectedWidgetId: "",
   editing: false,
   timer: null,
+  processGroups: [],
 };
 
 const els = {
@@ -39,9 +40,15 @@ const els = {
   updateWidget: document.querySelector("#update-widget"),
   duplicateWidget: document.querySelector("#duplicate-widget"),
   removeWidget: document.querySelector("#remove-widget"),
-  correlationId: document.querySelector("#correlation-id"),
-  searchCorrelation: document.querySelector("#search-correlation"),
-  correlationEvents: document.querySelector("#correlation-events"),
+  processFilter: document.querySelector("#process-filter"),
+  processSearch: document.querySelector("#process-search"),
+  processSummary: document.querySelector("#process-summary"),
+  processList: document.querySelector("#process-list"),
+  processModal: document.querySelector("#process-modal"),
+  modalClose: document.querySelector("#modal-close"),
+  modalTitle: document.querySelector("#modal-title"),
+  modalCopy: document.querySelector("#modal-copy"),
+  modalBody: document.querySelector("#modal-body"),
 };
 
 function endpoint(path, params = {}) {
@@ -73,7 +80,7 @@ async function sendJSON(path, body, method = "POST") {
 async function loadDashboards() {
   try {
     const [dashboards, config] = await Promise.all([getJSON("/v1/dashboards"), getJSON("/v1/config")]);
-    state.dashboards = dashboards;
+    state.dashboards = dashboards.map(normalizeDashboardDefinition);
     els.retentionDays.value = config.retentionDays || 7;
     if (state.dashboards.length === 0) state.dashboards = [newDashboardDefinition()];
     const previous = state.dashboard?.id || state.dashboards[0].id;
@@ -87,6 +94,17 @@ async function loadDashboards() {
   }
 }
 
+function normalizeDashboardDefinition(dashboard) {
+  if (dashboard?.id !== "routing-slip-observability") return dashboard;
+  const hasLegacyInstallmentWidget = (dashboard.widgets || []).some((widget) => String(widget.query || widget.metric || "").includes("installments."));
+  return {
+    ...dashboard,
+    name: "Processamento",
+    description: "Visao realtime do processamento de pedidos",
+    widgets: hasLegacyInstallmentWidget ? newDashboardDefinition().widgets : dashboard.widgets,
+  };
+}
+
 async function saveConfig() {
   try {
     await sendJSON("/v1/config", { retentionDays: Number(els.retentionDays.value) }, "PUT");
@@ -96,45 +114,251 @@ async function saveConfig() {
   }
 }
 
-async function searchCorrelation() {
-  const correlationID = els.correlationId.value.trim();
-  if (!correlationID) {
-    els.correlationEvents.innerHTML = `<span class="muted">Informe um correlation_id.</span>`;
-    return;
-  }
+async function loadProcesses() {
   try {
-    const events = await getJSON("/v1/metrics/events", { [`tag.correlation_id`]: correlationID, limit: 500 });
-    renderCorrelationEvents(events);
-    setStatus(true);
+    const events = await getJSON("/v1/metrics/events", {
+      ...timeWindow(),
+      source: "routing-slip-app",
+      limit: 1000,
+    });
+    state.processGroups = groupProcessEvents(events);
+    renderProcesses();
   } catch (error) {
-    setStatus(false, error.message);
+    els.processSummary.innerHTML = `<span class="muted">${escapeHTML(error.message)}</span>`;
+    els.processList.innerHTML = "";
   }
 }
 
-function renderCorrelationEvents(records) {
-  if (records.length === 0) {
-    els.correlationEvents.innerHTML = `<span class="muted">Nenhum evento encontrado para esse correlation_id.</span>`;
+function groupProcessEvents(records) {
+  const groups = new Map();
+  records.forEach((record) => {
+    const event = record.event || record;
+    const tags = event.tags || {};
+    const key = tags.correlation_id || tags.message_id || record.id || `${event.workflow}-${event.timestamp}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        id: key,
+        workflow: event.workflow || "-",
+        messageId: tags.message_id || "-",
+        correlationId: tags.correlation_id || "-",
+        tags: {},
+        events: [],
+        completed: 0,
+        failed: 0,
+        stopped: 0,
+        totalSteps: Number(tags.total_steps || 0),
+        startedAt: event.timestamp,
+        updatedAt: event.timestamp,
+      });
+    }
+    const group = groups.get(key);
+    group.events.push(event);
+    group.workflow = event.workflow || group.workflow;
+    group.messageId = tags.message_id || group.messageId;
+    group.correlationId = tags.correlation_id || group.correlationId;
+    group.totalSteps = Math.max(group.totalSteps, Number(tags.total_steps || 0));
+    group.startedAt = earlier(group.startedAt, event.timestamp);
+    group.updatedAt = later(group.updatedAt, event.timestamp);
+    Object.assign(group.tags, tags);
+    if (event.name === "routing_slip.step.completed") group.completed += 1;
+    if (event.name === "routing_slip.step.failed") group.failed += 1;
+    if (event.name === "routing_slip.step.stopped") group.stopped += 1;
+  });
+  return [...groups.values()]
+    .map((group) => {
+      group.status = group.failed > 0 ? "failed" : group.stopped > 0 ? "stopped" : group.totalSteps > 0 && group.completed >= group.totalSteps ? "completed" : "running";
+      group.remaining = Math.max((group.totalSteps || expectedSteps(group.workflow)) - group.completed - group.failed - group.stopped, 0);
+      group.events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      return group;
+    })
+    .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function renderProcesses() {
+  const filtered = filterProcesses(state.processGroups, els.processFilter.value.trim());
+  const completed = filtered.filter((item) => item.status === "completed").length;
+  const failed = filtered.filter((item) => item.status === "failed").length;
+  const stopped = filtered.filter((item) => item.status === "stopped").length;
+  const pending = filtered.reduce((sum, item) => sum + item.remaining, 0);
+  els.processSummary.innerHTML = `
+    <div><strong>${filtered.length}</strong><span>processos</span></div>
+    <div><strong>${completed}</strong><span>concluídos</span></div>
+    <div><strong>${failed}</strong><span>falhas</span></div>
+    <div><strong>${stopped}</strong><span>parados</span></div>
+    <div><strong>${pending}</strong><span>etapas faltantes</span></div>
+  `;
+  if (filtered.length === 0) {
+    els.processList.innerHTML = `<span class="muted">Nenhum processo encontrado no período.</span>`;
     return;
   }
-  els.correlationEvents.innerHTML = records
-    .map((record) => {
-      const event = record.event;
-      const tags = Object.entries(event.tags || {})
-        .map(([key, value]) => `${key}:${value}`)
-        .join(" ");
-      return `
-        <div class="event-row">
-          <code>${formatTime(event.timestamp)}</code>
-          <div>
-            <strong>${escapeHTML(event.name)}</strong>
-            <div class="muted">${escapeHTML(event.source || "-")} · ${escapeHTML(event.step || "-")} · ${escapeHTML(event.status || "-")}</div>
-            <code>${escapeHTML(tags)}</code>
-          </div>
-          <strong>${formatValue(event.value, event.unit)}</strong>
-        </div>
-      `;
-    })
+  els.processList.innerHTML = filtered.map(processRow).join("");
+  els.processList.querySelectorAll("[data-process-id]").forEach((row) => {
+    row.addEventListener("click", () => openProcess(row.dataset.processId));
+  });
+}
+
+function processRow(group) {
+  const tags = group.tags || {};
+  const chips = ["pedido_id", "id_cliente", "pagamento_id", "nota_fiscal_id", "codigo_rastreio"]
+    .filter((key) => tags[key])
+    .map((key) => `<span>${escapeHTML(key)}:${escapeHTML(tags[key])}</span>`)
     .join("");
+  return `
+    <button class="process-row" type="button" data-process-id="${escapeHTML(group.id)}">
+      <div>
+        <strong>${escapeHTML(group.workflow)}</strong>
+        <div class="muted">${escapeHTML(group.correlationId)} · ${escapeHTML(group.messageId)}</div>
+        <div class="process-tags">${chips}</div>
+      </div>
+      <div class="process-progress">
+        <span class="status ${group.status}">${statusLabel(group.status)}</span>
+        <strong>${group.completed}/${group.totalSteps || expectedSteps(group.workflow)}</strong>
+        <span class="muted">${group.remaining} faltantes</span>
+      </div>
+      <time>${formatTime(group.updatedAt)}</time>
+    </button>
+  `;
+}
+
+function filterProcesses(processes, rawFilter) {
+  if (!rawFilter) return processes;
+  const parts = rawFilter.split(/\s+/).map(parseAttributeFilter).filter(Boolean);
+  if (parts.length === 0) return processes;
+  return processes.filter((process) =>
+    parts.every(({ key, value }) => {
+      const haystack = processSearchFields(process);
+      return String(haystack[key] || "").toLowerCase().includes(value.toLowerCase());
+    }),
+  );
+}
+
+function parseAttributeFilter(text) {
+  const [key, ...rest] = text.split(":");
+  const value = rest.join(":");
+  if (!key || !value) return null;
+  return { key: key.trim(), value: value.trim() };
+}
+
+function processSearchFields(process) {
+  return {
+    workflow: process.workflow,
+    message_id: process.messageId,
+    correlation_id: process.correlationId,
+    status: process.status,
+    ...process.tags,
+  };
+}
+
+function openProcess(id) {
+  const process = state.processGroups.find((item) => item.id === id);
+  if (!process) return;
+  const tags = process.tags || {};
+  els.modalTitle.textContent = process.workflow;
+  els.modalCopy.textContent = `${process.correlationId} · ${statusLabel(process.status)} · ${process.remaining} etapas faltantes`;
+  els.modalBody.innerHTML = `
+    <section class="modal-kpis">
+      <div><strong>${process.completed}</strong><span>concluídas</span></div>
+      <div><strong>${process.failed}</strong><span>falhas</span></div>
+      <div><strong>${process.stopped}</strong><span>paradas</span></div>
+      <div><strong>${process.remaining}</strong><span>faltantes</span></div>
+    </section>
+    <section class="modal-tags">
+      ${Object.entries(tags)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => `<span><strong>${escapeHTML(key)}</strong>${escapeHTML(value)}</span>`)
+        .join("")}
+    </section>
+    <section class="timeline">
+      ${processSteps(process).map((step, index) => timelineItem(step, index)).join("")}
+    </section>
+  `;
+  els.modalBody.querySelectorAll("[data-step-index]").forEach((item) => {
+    item.addEventListener("click", () => item.classList.toggle("open"));
+  });
+  els.processModal.showModal();
+}
+
+function processSteps(process) {
+  const groups = new Map();
+  process.events.forEach((event) => {
+    const tags = event.tags || {};
+    const key = `${tags.step_index || "0"}:${event.step || tags.handler || event.name}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        step: event.step || tags.handler || event.name,
+        index: Number(tags.step_index || 0),
+        startedAt: event.timestamp,
+        updatedAt: event.timestamp,
+        status: "running",
+        input: tags.input_value || "",
+        rule: tags.rule_applied || "",
+        output: tags.output_value || "",
+        failure: tags.failure_reason || "",
+        duration: "",
+      });
+    }
+    const step = groups.get(key);
+    step.startedAt = earlier(step.startedAt, event.timestamp);
+    step.updatedAt = later(step.updatedAt, event.timestamp);
+    if (tags.input_value) step.input = tags.input_value;
+    if (tags.rule_applied) step.rule = tags.rule_applied;
+    if (tags.output_value) step.output = tags.output_value;
+    if (tags.failure_reason) step.failure = tags.failure_reason;
+    if (tags.duration_ms) step.duration = `${tags.duration_ms} ms`;
+    if (["success", "failed", "stopped"].includes(event.status)) step.status = event.status;
+  });
+  return [...groups.values()].sort((a, b) => a.index - b.index || new Date(a.startedAt) - new Date(b.startedAt));
+}
+
+function timelineItem(step, index) {
+  return `
+    <article class="timeline-item ${step.status || ""}" data-step-index="${index}">
+      <time>${formatTime(step.startedAt)}</time>
+      <div>
+        <strong>${escapeHTML(step.step)}</strong>
+        <p>${escapeHTML(statusLabel(step.status))} · ${escapeHTML(step.duration || "-")}</p>
+        <dl class="step-details">
+          <div><dt>Valor de entrada</dt><dd>${formatDetail(step.input)}</dd></div>
+          <div><dt>Regra aplicada</dt><dd>${formatDetail(step.rule)}</dd></div>
+          <div><dt>Valor de saída</dt><dd>${formatDetail(step.output)}</dd></div>
+          <div><dt>Status</dt><dd>${escapeHTML(statusLabel(step.status))}</dd></div>
+          <div><dt>Motivo da falha/parada</dt><dd>${escapeHTML(step.failure || "-")}</dd></div>
+        </dl>
+      </div>
+      <code>#${escapeHTML(step.index)}</code>
+    </article>
+  `;
+}
+
+function expectedSteps(workflow) {
+  if (workflow === "payment-event-fulfillment") return 8;
+  if (workflow === "order-fail-and-resume") return 7;
+  return 6;
+}
+
+function statusLabel(status) {
+  return { completed: "Concluído", success: "Concluído", failed: "Falhou", stopped: "Parado", running: "Em execução" }[status] || status;
+}
+
+function earlier(a, b) {
+  return new Date(a) <= new Date(b) ? a : b;
+}
+
+function later(a, b) {
+  return new Date(a) >= new Date(b) ? a : b;
+}
+
+function formatDetail(value) {
+  if (!value) return "-";
+  return `<code>${escapeHTML(prettyJSON(value))}</code>`;
+}
+
+function prettyJSON(value) {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
 }
 
 function renderDashboardSelect() {
@@ -162,7 +386,7 @@ async function renderDashboard() {
   if (!state.dashboard) return;
   els.grid.innerHTML = "";
   const widgets = [...(state.dashboard.widgets || [])].sort((a, b) => (a.layout?.y || 0) - (b.layout?.y || 0) || (a.layout?.x || 0) - (b.layout?.x || 0));
-  await Promise.all(widgets.map(renderWidget));
+  await Promise.all([Promise.all(widgets.map(renderWidget)), loadProcesses()]);
   els.lastUpdate.textContent = `Atualizado ${formatTime(new Date().toISOString())}`;
 }
 
@@ -428,7 +652,7 @@ function addWidget() {
     id: crypto.randomUUID ? crypto.randomUUID() : `widget-${Date.now()}`,
     type: "timeseries",
     title: "Novo widget",
-    query: "sum:installments.processed{}.as_count()",
+    query: "sum:routing_slip.step.completed{source:routing-slip-app}.as_count()",
     aggregation: "sum",
     chart: "timeseries",
     layout: { x: 0, y, w: 6, h: 3 },
@@ -506,29 +730,79 @@ async function deleteDashboard() {
 
 function newDashboardDefinition() {
   return {
-    id: "",
+    id: "routing-slip-observability",
     schemaVersion: 1,
-    name: "Novo dashboard",
-    description: "Dashboard parametrizado em JSON.",
+    name: "Processamento",
+    description: "Visao realtime do processamento de pedidos",
     refreshSeconds: 5,
     variables: [],
     widgets: [
       {
-        id: crypto.randomUUID ? crypto.randomUUID() : `widget-${Date.now()}`,
+        id: "routing-slip-completed",
         type: "indicator",
-        title: "Parcelas processadas",
-        query: "sum:installments.processed{}.as_count()",
+        title: "Etapas concluidas",
+        query: "sum:routing_slip.step.completed{source:routing-slip-app}.as_count()",
         aggregation: "sum",
         chart: "indicator",
         layout: { x: 0, y: 0, w: 3, h: 2 },
-        display: { label: "total" },
+        display: { label: "eventos" },
+      },
+      {
+        id: "routing-slip-failed",
+        type: "indicator",
+        title: "Falhas tecnicas",
+        query: "sum:routing_slip.step.failed{source:routing-slip-app}.as_count()",
+        aggregation: "sum",
+        chart: "indicator",
+        layout: { x: 3, y: 0, w: 3, h: 2 },
+        display: { label: "eventos" },
+      },
+      {
+        id: "routing-slip-stopped",
+        type: "indicator",
+        title: "Paradas funcionais",
+        query: "sum:routing_slip.step.stopped{source:routing-slip-app}.as_count()",
+        aggregation: "sum",
+        chart: "indicator",
+        layout: { x: 6, y: 0, w: 3, h: 2 },
+        display: { label: "eventos" },
+      },
+      {
+        id: "routing-slip-duration",
+        type: "bar",
+        title: "Duracao por etapa",
+        query: "sum:routing_slip.step.duration_ms{source:routing-slip-app} by {step}",
+        aggregation: "sum",
+        chart: "bar",
+        layout: { x: 9, y: 0, w: 3, h: 2 },
+        display: { unit: "ms" },
+      },
+      {
+        id: "routing-slip-throughput",
+        type: "timeseries",
+        title: "Throughput em tempo real",
+        query: "sum:routing_slip.step.completed{source:routing-slip-app}.as_count()",
+        aggregation: "sum",
+        chart: "timeseries",
+        layout: { x: 0, y: 2, w: 8, h: 3 },
+        display: { legend: true },
+      },
+      {
+        id: "routing-slip-steps-table",
+        type: "table",
+        title: "Execucoes por etapa",
+        query: "sum:routing_slip.step.completed{source:routing-slip-app} by {step}",
+        aggregation: "sum",
+        chart: "table",
+        layout: { x: 8, y: 2, w: 4, h: 3 },
+        display: { label: "etapas" },
       },
     ],
   };
 }
 
 function fallbackQuery(widget) {
-  return `${widget.aggregation || "sum"}:${widget.metric || "installments.processed"}{}.as_count()`;
+  return `${widget.aggregation || "sum"}:${widget.metric || "routing_slip.step.completed"}{source:routing-slip-app}.as_count()`;
 }
 
 function normalizeLayout(layout = {}) {
@@ -594,9 +868,13 @@ els.addWidget.addEventListener("click", addWidget);
 els.updateWidget.addEventListener("click", updateSelectedWidget);
 els.duplicateWidget.addEventListener("click", duplicateWidget);
 els.removeWidget.addEventListener("click", removeWidget);
-els.searchCorrelation.addEventListener("click", searchCorrelation);
-els.correlationId.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") searchCorrelation();
+els.processSearch.addEventListener("click", renderProcesses);
+els.processFilter.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") renderProcesses();
+});
+els.modalClose.addEventListener("click", () => els.processModal.close());
+els.processModal.addEventListener("click", (event) => {
+  if (event.target === els.processModal) els.processModal.close();
 });
 els.refresh.addEventListener("change", schedule);
 els.window.addEventListener("change", renderDashboard);
