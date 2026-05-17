@@ -637,3 +637,4 @@ Recursos previstos no MVP:
 - Implementar import/export de dashboards JSON.
 - Provisionar imagens e deploy AWS via pipeline.
 # custom-business-metrics
+# obsidian-flash-cards
