@@ -48,6 +48,31 @@ URLs principais:
 | Metrics API | `http://localhost:8080` |
 | Metrics Webview | `http://localhost:5173` |
 
+## Case ecommerce-distributed
+
+O case distribuido de ecommerce gera eventos suficientes para validar dashboards de acompanhamento operacional.
+
+Dimensoes recomendadas:
+
+| Dimensao | Uso |
+|---|---|
+| `workflow` | Separar o fluxo `ecommerce-order-fulfillment`. |
+| `step` | Identificar gargalos por etapa. |
+| `handler` | Comparar handlers de integracao, controle e auditoria. |
+| `status` | Separar sucesso, falha, skip e reprocessamento. |
+| `correlation_id` | Localizar um pedido especifico. |
+| `trace_id` | Seguir a trilha tecnica entre runtime, GraphQL e APIs externas. |
+
+Indicadores uteis:
+
+- execucoes por minuto;
+- tempo medio e p95 por step;
+- falhas por integracao;
+- quantidade de retries;
+- reprocessamentos por periodo;
+- etapas preservadas por idempotencia;
+- tempo entre falha e retomada.
+
 ## Preparacao tecnica e feature flags
 
 A configuracao runtime expoe campos para controlar capacidades operacionais sem exigir mudanca no contrato de ingestao de metricas.
