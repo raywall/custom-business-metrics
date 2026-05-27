@@ -169,3 +169,32 @@ Indices relevantes:
 - Base para dashboards realtime.
 - Evidencia para reprocessamento e auditoria.
 - Preparacao para analytics MCP nas proximas fases.
+
+## Resiliencia e metricas
+
+Com a Fase 3, o `routing-slip-pattern` e o `go-graphql-connector` passam a registrar tentativas e falhas de forma mais estruturada.
+
+Eventos de etapa podem trazer tags como:
+
+```json
+{
+  "tags": {
+    "workflow": "order-processing",
+    "handler": "graphql_enrich",
+    "attempt": "3",
+    "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+    "span_id": "00f067aa0ba902b7",
+    "failure_reason": "temporary network error"
+  }
+}
+```
+
+Esses dados permitem criar indicadores como:
+
+- etapas com mais retries;
+- tempo médio de recuperação após falha transitória;
+- workflows que caem em fallback;
+- volume de execuções com `status=skipped`, `status=jumped` ou `status=failed`;
+- correlação entre falhas de integração e `trace_id`.
+
+Nas próximas fases, essas informações serão a base para dashboards de resiliência e tools MCP de análise operacional.
