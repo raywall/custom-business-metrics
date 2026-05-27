@@ -34,6 +34,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /v1/config", s.saveConfig)
 	mux.HandleFunc("POST /v1/metrics", s.ingest)
 	mux.HandleFunc("GET /v1/metrics/events", s.events)
+	mux.HandleFunc("GET /v1/metrics/trace/{traceId}", s.eventsByTrace)
 	mux.HandleFunc("GET /v1/metrics", s.summaries)
 	mux.HandleFunc("GET /v1/metrics/series", s.series)
 	mux.HandleFunc("GET /v1/dimensions", s.dimensions)
@@ -82,6 +83,21 @@ func (s *Server) ingest(w http.ResponseWriter, r *http.Request) {
 func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	result, err := s.metrics.Events(r.Context(), parseFilter(r), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) eventsByTrace(w http.ResponseWriter, r *http.Request) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	filter := parseFilter(r)
+	if filter.Tags == nil {
+		filter.Tags = map[string]string{}
+	}
+	filter.Tags["trace_id"] = strings.TrimSpace(r.PathValue("traceId"))
+	result, err := s.metrics.Events(r.Context(), filter, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -208,6 +224,12 @@ func parseTags(r *http.Request) map[string]string {
 				tags[key] = value
 			}
 		}
+	}
+	if traceID := strings.TrimSpace(r.URL.Query().Get("trace_id")); traceID != "" {
+		tags["trace_id"] = traceID
+	}
+	if spanID := strings.TrimSpace(r.URL.Query().Get("span_id")); spanID != "" {
+		tags["span_id"] = spanID
 	}
 	return tags
 }

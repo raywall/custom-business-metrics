@@ -17,7 +17,7 @@ func NewConfigService(retentionDays int) *ConfigService {
 	if retentionDays <= 0 {
 		retentionDays = 7
 	}
-	return &ConfigService{config: core.RuntimeConfig{RetentionDays: retentionDays}}
+	return &ConfigService{config: normalizeRuntimeConfig(core.RuntimeConfig{RetentionDays: retentionDays})}
 }
 
 // Get returns current runtime configuration.
@@ -34,6 +34,19 @@ func (s *ConfigService) Save(config core.RuntimeConfig) core.RuntimeConfig {
 	if config.RetentionDays <= 0 {
 		config.RetentionDays = 1
 	}
-	s.config = config
+	s.config = normalizeRuntimeConfig(config)
 	return s.config
+}
+
+func normalizeRuntimeConfig(config core.RuntimeConfig) core.RuntimeConfig {
+	if config.RetentionDays <= 0 {
+		config.RetentionDays = 7
+	}
+	config.Features.TracingEnabled = true
+	config.Features.TraceIndexEnabled = true
+	if !config.Security.Redaction.Enabled && len(config.Security.Redaction.Fields) == 0 {
+		config.Security.Redaction.Enabled = true
+		config.Security.Redaction.Fields = []string{"authorization", "client_secret", "access_token", "refresh_token", "password", "token", "api_key", "x-api-key"}
+	}
+	return config
 }
