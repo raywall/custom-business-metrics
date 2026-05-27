@@ -248,3 +248,20 @@ Beneficios esperados:
 - reducao de consultas manuais em DynamoDB;
 - insumos para dashboards inteligentes no Studio;
 - comparacao objetiva entre falha, retomada e reprocessamento.
+
+## Planner MCP e Sugestao de Metricas
+
+A Fase 6 adiciona um planner assistido por MCP no `routing-slip-pattern`. Alem de sugerir steps, ele tambem gera uma primeira lista de metricas e pontos de auditoria para que o workflow nasca observavel.
+
+Sugestoes padrao do planner incluem:
+
+| Metrica | Objetivo |
+|---|---|
+| `workflow_started_total` | Volume de entradas por workflow. |
+| `workflow_completed_total` | Total de conclusoes por status. |
+| `workflow_failed_total` | Falhas por etapa e handler. |
+| `workflow_step_duration_ms` | Duracao por etapa. |
+| `workflow_reprocess_total` | Volume de reprocessamentos. |
+| `workflow_idempotent_skip_total` | Etapas ignoradas por idempotencia. |
+
+Essas sugestoes nao substituem desenho de dashboard. Elas funcionam como ponto de partida para garantir rastreabilidade, explicabilidade e comparacao entre execucao original e reprocessamento.
