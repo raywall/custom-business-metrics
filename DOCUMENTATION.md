@@ -25,7 +25,7 @@ O objetivo do projeto e transformar cada etapa do processamento em uma evidencia
 
 ## Preparacao tecnica e feature flags
 
-A Fase 0 adiciona campos de configuracao runtime para controlar capacidades evolutivas.
+A configuracao runtime expoe campos para controlar capacidades operacionais sem exigir mudanca no contrato de ingestao de metricas.
 
 Exemplo retornado por `GET /v1/config`:
 
@@ -95,9 +95,7 @@ Formato principal:
 
 ## Rastreabilidade distribuida
 
-A Fase 1 da evolucao adiciona suporte explicito a `trace_id`.
-
-Antes, o projeto ja conseguia buscar processos por tags como `correlation_id`. Agora tambem e possivel usar o `trace_id` para acompanhar a jornada tecnica de uma execucao distribuida entre:
+O projeto suporta `trace_id` como identificador tecnico distribuido. Alem de buscar processos por tags como `correlation_id`, tambem e possivel usar o `trace_id` para acompanhar a jornada tecnica de uma execucao distribuida entre:
 
 - `routing-slip-pattern`;
 - `go-graphql-connector`;
@@ -168,11 +166,11 @@ Indices relevantes:
 - Busca por trilha tecnica usando `trace_id`.
 - Base para dashboards realtime.
 - Evidencia para reprocessamento e auditoria.
-- Preparacao para analytics MCP nas proximas fases.
+- Base para analytics MCP e investigacao operacional assistida.
 
 ## Resiliencia e metricas
 
-Com a Fase 3, o `routing-slip-pattern` e o `go-graphql-connector` passam a registrar tentativas e falhas de forma mais estruturada.
+O `routing-slip-pattern` e o `go-graphql-connector` registram tentativas e falhas de forma estruturada para que a operacao consiga diferenciar falhas transitorias, timeouts, circuit breaker aberto, abortos funcionais e reprocessamentos.
 
 Eventos de etapa podem trazer tags como:
 
@@ -197,11 +195,11 @@ Esses dados permitem criar indicadores como:
 - volume de execuções com `status=skipped`, `status=jumped` ou `status=failed`;
 - correlação entre falhas de integração e `trace_id`.
 
-Nas próximas fases, essas informações serão a base para dashboards de resiliência e tools MCP de análise operacional.
+Essas informacoes formam a base para dashboards de resiliencia e tools MCP de analise operacional.
 
 ## State Store e Observabilidade de Reprocessamento
 
-A Fase 4 do `routing-slip-pattern` adiciona state store persistente com snapshots de execucao. O `custom-business-metrics` continua responsavel pela visao operacional e pode consumir os eventos emitidos pelo runtime para mostrar onde um processamento parou, quando foi retomado e quais etapas foram ignoradas por idempotencia.
+O state store persistente do `routing-slip-pattern` guarda snapshots de execucao. O `custom-business-metrics` continua responsavel pela visao operacional e pode consumir os eventos emitidos pelo runtime para mostrar onde um processamento parou, quando foi retomado e quais etapas foram ignoradas por idempotencia.
 
 Eventos de etapa podem incluir status como:
 
@@ -223,9 +221,9 @@ Com esses dados, dashboards podem evidenciar:
 
 O state store guarda o snapshot; o metrics service transforma a execucao em leitura operacional para acompanhamento realtime e auditoria.
 
-## MCP Analytics Foundation
+## MCP Analytics
 
-A Fase 5 define o MCP Analytics como uma camada de consulta operacional para agentes e Studio. A ideia e transformar metricas, traces e eventos persistidos em ferramentas de investigacao sem exigir acesso direto ao banco ou aos logs.
+O MCP Analytics funciona como uma camada de consulta operacional para agentes e Studio. A ideia e transformar metricas, traces e eventos persistidos em ferramentas de investigacao sem exigir acesso direto ao banco ou aos logs.
 
 Tools previstas:
 
@@ -251,7 +249,7 @@ Beneficios esperados:
 
 ## Planner MCP e Sugestao de Metricas
 
-A Fase 6 adiciona um planner assistido por MCP no `routing-slip-pattern`. Alem de sugerir steps, ele tambem gera uma primeira lista de metricas e pontos de auditoria para que o workflow nasca observavel.
+O planner assistido por MCP do `routing-slip-pattern`, alem de sugerir steps, tambem gera uma primeira lista de metricas e pontos de auditoria para que o workflow nasca observavel.
 
 Sugestoes padrao do planner incluem:
 
