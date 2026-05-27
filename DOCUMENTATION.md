@@ -222,3 +222,29 @@ Com esses dados, dashboards podem evidenciar:
 - correlacao entre `trace_id`, `correlation_id` e cursor salvo.
 
 O state store guarda o snapshot; o metrics service transforma a execucao em leitura operacional para acompanhamento realtime e auditoria.
+
+## MCP Analytics Foundation
+
+A Fase 5 define o MCP Analytics como uma camada de consulta operacional para agentes e Studio. A ideia e transformar metricas, traces e eventos persistidos em ferramentas de investigacao sem exigir acesso direto ao banco ou aos logs.
+
+Tools previstas:
+
+| Tool | Objetivo |
+|---|---|
+| `get_workflow_summary` | Volume, sucesso, falha e tempo medio por workflow. |
+| `get_execution_by_correlation` | Busca a jornada de um processo por `correlation_id`. |
+| `get_execution_by_trace` | Busca eventos tecnicos por `trace_id`. |
+| `get_step_failure_rate` | Calcula falhas por etapa/handler. |
+| `get_latency_percentiles` | Retorna p50, p90, p95 e p99. |
+| `find_processes` | Busca por filtros no formato `key:value`. |
+| `compare_reprocess` | Compara execucao original e reprocessamento. |
+
+Essas tools usam os dados ja emitidos pelo `routing-slip-pattern`: `workflow`, `step`, `handler`, `status`, `attempt`, `trace_id`, `span_id`, `correlation_id` e os eventos de reprocessamento/idempotencia.
+
+Beneficios esperados:
+
+- investigacao guiada por agentes;
+- explicacao operacional para usuarios de negocio e engenharia;
+- reducao de consultas manuais em DynamoDB;
+- insumos para dashboards inteligentes no Studio;
+- comparacao objetiva entre falha, retomada e reprocessamento.
