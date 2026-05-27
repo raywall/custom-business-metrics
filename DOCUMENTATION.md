@@ -23,6 +23,31 @@ O objetivo do projeto e transformar cada etapa do processamento em uma evidencia
 | `webview` | Interface web para acompanhar dashboards. |
 | `DynamoDB` | Persistencia dos eventos para consulta historica. |
 
+## Execucao no workspace integrado
+
+Na raiz de `/Users/raysouz/Workspace/estudos/workflows`, o projeto pode ser executado junto com o runtime de workflow e o GraphQL connector.
+
+Modo com containers separados:
+
+```bash
+make prepare
+```
+
+Modo compacto:
+
+```bash
+make run-compact
+```
+
+No modo compacto, o `service` usa armazenamento em memoria e o `webview` e servido na porta `5173`. Esse modo reduz o custo local para demonstracoes e testes rapidos. Para validar persistencia historica, indices e TTL, use a stack padrao com DynamoDB.
+
+URLs principais:
+
+| Recurso | URL |
+|---|---|
+| Metrics API | `http://localhost:8080` |
+| Metrics Webview | `http://localhost:5173` |
+
 ## Preparacao tecnica e feature flags
 
 A configuracao runtime expoe campos para controlar capacidades operacionais sem exigir mudanca no contrato de ingestao de metricas.
