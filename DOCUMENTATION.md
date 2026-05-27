@@ -198,3 +198,27 @@ Esses dados permitem criar indicadores como:
 - correlação entre falhas de integração e `trace_id`.
 
 Nas próximas fases, essas informações serão a base para dashboards de resiliência e tools MCP de análise operacional.
+
+## State Store e Observabilidade de Reprocessamento
+
+A Fase 4 do `routing-slip-pattern` adiciona state store persistente com snapshots de execucao. O `custom-business-metrics` continua responsavel pela visao operacional e pode consumir os eventos emitidos pelo runtime para mostrar onde um processamento parou, quando foi retomado e quais etapas foram ignoradas por idempotencia.
+
+Eventos de etapa podem incluir status como:
+
+| Status | Significado |
+|---|---|
+| `success` | Etapa concluida normalmente. |
+| `failed` | Etapa falhou e o snapshot foi salvo com cursor no ponto correto. |
+| `skipped` | Etapa pulada por politica de erro ou decisao de fluxo. |
+| `jumped` | Etapa redirecionou o cursor para outro ponto. |
+| `idempotent_skip` | Etapa ja havia sido concluida e nao foi repetida no reprocessamento. |
+
+Com esses dados, dashboards podem evidenciar:
+
+- quantidade de workflows em `failed`, `stopped` ou `completed`;
+- tempo entre falha e reprocessamento;
+- etapas com maior volume de retomadas;
+- economia operacional gerada por `idempotent_skip`;
+- correlacao entre `trace_id`, `correlation_id` e cursor salvo.
+
+O state store guarda o snapshot; o metrics service transforma a execucao em leitura operacional para acompanhamento realtime e auditoria.
