@@ -1,48 +1,39 @@
+const STORAGE_KEY = "custom-business-metrics.webview.settings.v2";
+
 const state = {
-  dashboards: [],
-  dashboard: null,
-  selectedWidgetId: "",
-  editing: false,
+  settings: {
+    apiUrl: "http://localhost:8080",
+    apiKey: "",
+    rangeMode: "15m",
+    rangeFrom: "",
+    rangeTo: "",
+    refreshInterval: 5000,
+  },
   timer: null,
-  processGroups: [],
+  events: [],
+  processes: [],
 };
 
 const els = {
   apiUrl: document.querySelector("#api-url"),
-  dashboardSelect: document.querySelector("#dashboard-select"),
-  dashboardName: document.querySelector("#dashboard-name"),
-  dashboardDescription: document.querySelector("#dashboard-description"),
-  dashboardJSON: document.querySelector("#dashboard-json"),
-  dashboardTitle: document.querySelector("#dashboard-title"),
-  dashboardCopy: document.querySelector("#dashboard-copy"),
-  grid: document.querySelector("#dashboard-grid"),
-  window: document.querySelector("#window"),
-  refresh: document.querySelector("#refresh"),
-  retentionDays: document.querySelector("#retention-days"),
+  apiKey: document.querySelector("#api-key"),
+  rangeMode: document.querySelector("#range-mode"),
+  customRange: document.querySelector("#custom-range"),
+  rangeFrom: document.querySelector("#range-from"),
+  rangeTo: document.querySelector("#range-to"),
+  refreshInterval: document.querySelector("#refresh-interval"),
+  refreshNow: document.querySelector("#refresh-now"),
+  openConfig: document.querySelector("#open-config"),
   saveConfig: document.querySelector("#save-config"),
-  lastUpdate: document.querySelector("#last-update"),
+  configModal: document.querySelector("#config-modal"),
   dot: document.querySelector("#status-dot"),
   statusText: document.querySelector("#status-text"),
-  toggleEdit: document.querySelector("#toggle-edit"),
-  saveDashboard: document.querySelector("#save-dashboard"),
-  newDashboard: document.querySelector("#new-dashboard"),
-  deleteDashboard: document.querySelector("#delete-dashboard"),
-  refreshNow: document.querySelector("#refresh-now"),
-  applyJSON: document.querySelector("#apply-json"),
-  addWidget: document.querySelector("#add-widget"),
-  widgetType: document.querySelector("#widget-type"),
-  widgetTitle: document.querySelector("#widget-title"),
-  widgetQuery: document.querySelector("#widget-query"),
-  widgetX: document.querySelector("#widget-x"),
-  widgetY: document.querySelector("#widget-y"),
-  widgetW: document.querySelector("#widget-w"),
-  widgetH: document.querySelector("#widget-h"),
-  updateWidget: document.querySelector("#update-widget"),
-  duplicateWidget: document.querySelector("#duplicate-widget"),
-  removeWidget: document.querySelector("#remove-widget"),
+  lastUpdate: document.querySelector("#last-update"),
+  chartSubtitle: document.querySelector("#chart-subtitle"),
+  hourlyChart: document.querySelector("#hourly-chart"),
+  processSummary: document.querySelector("#process-summary"),
   processFilter: document.querySelector("#process-filter"),
   processSearch: document.querySelector("#process-search"),
-  processSummary: document.querySelector("#process-summary"),
   processList: document.querySelector("#process-list"),
   processModal: document.querySelector("#process-modal"),
   modalClose: document.querySelector("#modal-close"),
@@ -51,81 +42,90 @@ const els = {
   modalBody: document.querySelector("#modal-body"),
 };
 
+function loadSettings() {
+  try {
+    state.settings = { ...state.settings, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") };
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+  }
+  els.apiUrl.value = state.settings.apiUrl;
+  els.apiKey.value = state.settings.apiKey;
+  els.rangeMode.value = state.settings.rangeMode;
+  els.rangeFrom.value = state.settings.rangeFrom;
+  els.rangeTo.value = state.settings.rangeTo;
+  els.refreshInterval.value = String(state.settings.refreshInterval);
+  syncRangeControls();
+}
+
+function saveSettings() {
+  state.settings = {
+    apiUrl: normalizeBaseURL(els.apiUrl.value),
+    apiKey: els.apiKey.value.trim(),
+    rangeMode: els.rangeMode.value,
+    rangeFrom: els.rangeFrom.value,
+    rangeTo: els.rangeTo.value,
+    refreshInterval: Number(els.refreshInterval.value),
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.settings));
+  scheduleRefresh();
+}
+
+function normalizeBaseURL(value) {
+  return String(value || "http://localhost:8080").trim().replace(/\/+$/, "");
+}
+
+function requestHeaders() {
+  const headers = { "Content-Type": "application/json" };
+  if (state.settings.apiKey) {
+    headers.Authorization = `Bearer ${state.settings.apiKey}`;
+    headers["X-API-Key"] = state.settings.apiKey;
+  }
+  return headers;
+}
+
 function endpoint(path, params = {}) {
-  const url = new URL(path, els.apiUrl.value);
+  const url = new URL(path, state.settings.apiUrl);
   Object.entries(params).forEach(([key, value]) => {
-    if (value !== "" && value !== undefined && value !== null) {
-      url.searchParams.set(key, value);
-    }
+    if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, value);
   });
   return url;
 }
 
-async function getJSON(path, params) {
-  const response = await fetch(endpoint(path, params));
+async function getJSON(path, params = {}) {
+  const response = await fetch(endpoint(path, params), { headers: requestHeaders() });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return response.json();
 }
 
-async function sendJSON(path, body, method = "POST") {
-  const response = await fetch(endpoint(path), {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  return response.json();
-}
-
-async function loadDashboards() {
-  try {
-    const [dashboards, config] = await Promise.all([getJSON("/v1/dashboards"), getJSON("/v1/config")]);
-    state.dashboards = dashboards.map(normalizeDashboardDefinition);
-    els.retentionDays.value = config.retentionDays || 7;
-    if (state.dashboards.length === 0) state.dashboards = [newDashboardDefinition()];
-    const previous = state.dashboard?.id || state.dashboards[0].id;
-    state.dashboard = state.dashboards.find((item) => item.id === previous) || state.dashboards[0];
-    renderDashboardSelect();
-    syncDashboardEditor();
-    await renderDashboard();
-    setStatus(true);
-  } catch (error) {
-    setStatus(false, error.message);
+function timeWindow() {
+  if (state.settings.rangeMode === "custom") {
+    const from = state.settings.rangeFrom ? new Date(state.settings.rangeFrom) : new Date(Date.now() - 15 * 60 * 1000);
+    const to = state.settings.rangeTo ? new Date(state.settings.rangeTo) : new Date();
+    return { from: from.toISOString(), to: to.toISOString() };
   }
+  const amount = Number(state.settings.rangeMode.match(/\d+/)?.[0] || 15);
+  const unit = state.settings.rangeMode.replace(String(amount), "");
+  const multiplier = unit === "h" ? 60 * 60 * 1000 : 60 * 1000;
+  const to = new Date();
+  const from = new Date(to.getTime() - amount * multiplier);
+  return { from: from.toISOString(), to: to.toISOString() };
 }
 
-function normalizeDashboardDefinition(dashboard) {
-  if (dashboard?.id !== "routing-slip-observability") return dashboard;
-  const hasLegacyInstallmentWidget = (dashboard.widgets || []).some((widget) => String(widget.query || widget.metric || "").includes("installments."));
-  return {
-    ...dashboard,
-    name: "Processamento",
-    description: "Visao realtime do processamento de pedidos",
-    widgets: hasLegacyInstallmentWidget ? newDashboardDefinition().widgets : dashboard.widgets,
-  };
-}
-
-async function saveConfig() {
+async function refreshData() {
+  saveSettings();
   try {
-    await sendJSON("/v1/config", { retentionDays: Number(els.retentionDays.value) }, "PUT");
-    setStatus(true);
-  } catch (error) {
-    setStatus(false, error.message);
-  }
-}
-
-async function loadProcesses() {
-  try {
-    const events = await getJSON("/v1/metrics/events", {
-      ...timeWindow(),
+    const window = timeWindow();
+    const records = await getJSON("/v1/metrics/events", {
+      ...window,
       source: "routing-slip-app",
       limit: 1000,
     });
-    state.processGroups = groupProcessEvents(events);
-    renderProcesses();
+    state.events = records.map((record) => record.event || record);
+    state.processes = groupProcessEvents(records);
+    setStatus(true);
+    renderAll();
   } catch (error) {
-    els.processSummary.innerHTML = `<span class="muted">${escapeHTML(error.message)}</span>`;
-    els.processList.innerHTML = "";
+    setStatus(false, error.message);
   }
 }
 
@@ -134,21 +134,22 @@ function groupProcessEvents(records) {
   records.forEach((record) => {
     const event = record.event || record;
     const tags = event.tags || {};
-    const key = tags.correlation_id || tags.message_id || record.id || `${event.workflow}-${event.timestamp}`;
+    const key = tags.correlation_id || tags.message_id || event.trace_id || record.id || `${event.workflow}-${event.timestamp}`;
     if (!groups.has(key)) {
       groups.set(key, {
         id: key,
         workflow: event.workflow || "-",
         messageId: tags.message_id || "-",
         correlationId: tags.correlation_id || "-",
+        traceId: event.trace_id || tags.trace_id || "-",
+        startedAt: event.timestamp,
+        updatedAt: event.timestamp,
         tags: {},
         events: [],
         completed: 0,
         failed: 0,
         stopped: 0,
         totalSteps: Number(tags.total_steps || 0),
-        startedAt: event.timestamp,
-        updatedAt: event.timestamp,
       });
     }
     const group = groups.get(key);
@@ -156,6 +157,7 @@ function groupProcessEvents(records) {
     group.workflow = event.workflow || group.workflow;
     group.messageId = tags.message_id || group.messageId;
     group.correlationId = tags.correlation_id || group.correlationId;
+    group.traceId = event.trace_id || tags.trace_id || group.traceId;
     group.totalSteps = Math.max(group.totalSteps, Number(tags.total_steps || 0));
     group.startedAt = earlier(group.startedAt, event.timestamp);
     group.updatedAt = later(group.updatedAt, event.timestamp);
@@ -164,33 +166,102 @@ function groupProcessEvents(records) {
     if (event.name === "routing_slip.step.failed") group.failed += 1;
     if (event.name === "routing_slip.step.stopped") group.stopped += 1;
   });
+
   return [...groups.values()]
     .map((group) => {
-      group.status = group.failed > 0 ? "failed" : group.stopped > 0 ? "stopped" : group.totalSteps > 0 && group.completed >= group.totalSteps ? "completed" : "running";
-      group.remaining = Math.max((group.totalSteps || expectedSteps(group.workflow)) - group.completed - group.failed - group.stopped, 0);
+      const expected = group.totalSteps || inferExpectedSteps(group);
+      group.status = group.failed > 0 ? "failed" : group.stopped > 0 ? "stopped" : group.completed >= expected ? "completed" : "running";
+      group.expectedSteps = expected;
+      group.remaining = Math.max(expected - group.completed - group.failed - group.stopped, 0);
+      group.durationMs = Math.max(0, new Date(group.updatedAt) - new Date(group.startedAt));
       group.events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
       return group;
     })
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
 
-function renderProcesses() {
-  const filtered = filterProcesses(state.processGroups, els.processFilter.value.trim());
-  const completed = filtered.filter((item) => item.status === "completed").length;
-  const failed = filtered.filter((item) => item.status === "failed").length;
-  const stopped = filtered.filter((item) => item.status === "stopped").length;
-  const pending = filtered.reduce((sum, item) => sum + item.remaining, 0);
-  els.processSummary.innerHTML = `
-    <div><strong>${filtered.length}</strong><span>processos</span></div>
-    <div><strong>${completed}</strong><span>concluídos</span></div>
-    <div><strong>${failed}</strong><span>falhas</span></div>
-    <div><strong>${stopped}</strong><span>parados</span></div>
-    <div><strong>${pending}</strong><span>etapas faltantes</span></div>
-  `;
-  if (filtered.length === 0) {
-    els.processList.innerHTML = `<span class="muted">Nenhum processo encontrado no período.</span>`;
+function inferExpectedSteps(group) {
+  const indexes = group.events.map((event) => Number((event.tags || {}).step_index || 0));
+  return Math.max(...indexes, group.completed + group.failed + group.stopped, 1);
+}
+
+function renderAll() {
+  const window = timeWindow();
+  els.lastUpdate.textContent = `Atualizado ${formatDateTime(new Date().toISOString())}`;
+  els.chartSubtitle.textContent = `${formatDateTime(window.from)} - ${formatDateTime(window.to)}`;
+  renderHourlyChart();
+  renderProcesses();
+}
+
+function renderHourlyChart() {
+  const buckets = hourlyBuckets(state.processes);
+  const canvas = els.hourlyChart;
+  const context = prepareCanvas(canvas);
+  const rect = canvas.getBoundingClientRect();
+  const pad = { top: 18, right: 18, bottom: 34, left: 44 };
+  const width = rect.width - pad.left - pad.right;
+  const height = rect.height - pad.top - pad.bottom;
+  context.clearRect(0, 0, rect.width, rect.height);
+  drawGrid(context, pad, width, height);
+
+  if (buckets.length === 0) {
+    context.fillStyle = "#687782";
+    context.fillText("Sem processamentos no periodo", pad.left + 8, pad.top + 24);
     return;
   }
+
+  const max = Math.max(...buckets.map((bucket) => bucket.value), 1);
+  const gap = Math.max(4, Math.min(12, width / Math.max(buckets.length, 1) * 0.18));
+  const barWidth = Math.max(8, (width - gap * (buckets.length - 1)) / buckets.length);
+
+  buckets.forEach((bucket, index) => {
+    const x = pad.left + index * (barWidth + gap);
+    const barHeight = (bucket.value / max) * height;
+    const y = pad.top + height - barHeight;
+    context.fillStyle = bucket.failed > 0 ? "#d83b3b" : "#6bb8ff";
+    context.fillRect(x, y, barWidth, barHeight);
+    if (index % Math.ceil(buckets.length / 8) === 0 || buckets.length <= 8) {
+      context.fillStyle = "#687782";
+      context.fillText(bucket.label, x, pad.top + height + 20);
+    }
+  });
+
+  context.fillStyle = "#35424a";
+  context.fillText(String(max), 8, pad.top + 5);
+  context.fillText("0", 16, pad.top + height + 4);
+}
+
+function hourlyBuckets(processes) {
+  const window = timeWindow();
+  const from = floorHour(new Date(window.from));
+  const to = floorHour(new Date(window.to));
+  const buckets = [];
+  for (let cursor = new Date(from); cursor <= to; cursor = new Date(cursor.getTime() + 60 * 60 * 1000)) {
+    buckets.push({ key: cursor.toISOString(), label: formatHour(cursor), value: 0, failed: 0 });
+  }
+  const index = new Map(buckets.map((bucket) => [bucket.key, bucket]));
+  processes.forEach((process) => {
+    const key = floorHour(new Date(process.startedAt)).toISOString();
+    const bucket = index.get(key);
+    if (!bucket) return;
+    bucket.value += 1;
+    if (process.status === "failed") bucket.failed += 1;
+  });
+  return buckets;
+}
+
+function renderProcesses() {
+  const filtered = filterProcesses(state.processes, els.processFilter.value.trim());
+  const completed = filtered.filter((item) => item.status === "completed").length;
+  const failed = filtered.filter((item) => item.status === "failed").length;
+  const running = filtered.filter((item) => item.status === "running").length;
+  els.processSummary.textContent = `${filtered.length} processos, ${completed} concluidos, ${failed} falhas, ${running} em execucao`;
+
+  if (filtered.length === 0) {
+    els.processList.innerHTML = `<tr><td colspan="8" class="empty">Nenhum processamento encontrado no periodo.</td></tr>`;
+    return;
+  }
+
   els.processList.innerHTML = filtered.map(processRow).join("");
   els.processList.querySelectorAll("[data-process-id]").forEach((row) => {
     row.addEventListener("click", () => openProcess(row.dataset.processId));
@@ -199,41 +270,37 @@ function renderProcesses() {
 
 function processRow(group) {
   const tags = group.tags || {};
-  const chips = ["pedido_id", "id_cliente", "pagamento_id", "nota_fiscal_id", "codigo_rastreio"]
+  const chipKeys = ["order_id", "pedido_id", "customer_id", "id_cliente", "event_id", "trace_id"];
+  const chips = chipKeys
     .filter((key) => tags[key])
+    .slice(0, 3)
     .map((key) => `<span>${escapeHTML(key)}:${escapeHTML(tags[key])}</span>`)
     .join("");
   return `
-    <button class="process-row" type="button" data-process-id="${escapeHTML(group.id)}">
-      <div>
-        <strong>${escapeHTML(group.workflow)}</strong>
-        <div class="muted">${escapeHTML(group.correlationId)} · ${escapeHTML(group.messageId)}</div>
-        <div class="process-tags">${chips}</div>
-      </div>
-      <div class="process-progress">
-        <span class="status ${group.status}">${statusLabel(group.status)}</span>
-        <strong>${group.completed}/${group.totalSteps || expectedSteps(group.workflow)}</strong>
-        <span class="muted">${group.remaining} faltantes</span>
-      </div>
-      <time>${formatTime(group.updatedAt)}</time>
-    </button>
+    <tr data-process-id="${escapeHTML(group.id)}">
+      <td><time>${escapeHTML(formatDateTime(group.updatedAt))}</time></td>
+      <td><strong>${escapeHTML(group.workflow)}</strong></td>
+      <td><code>${escapeHTML(group.correlationId)}</code></td>
+      <td><code>${escapeHTML(group.messageId)}</code></td>
+      <td>${escapeHTML(formatDuration(group.durationMs))}</td>
+      <td>${group.completed}/${group.expectedSteps}</td>
+      <td><span class="status ${group.status}">${escapeHTML(statusLabel(group.status))}</span></td>
+      <td><div class="tag-list">${chips || `<span>trace:${escapeHTML(group.traceId)}</span>`}</div></td>
+    </tr>
   `;
 }
 
 function filterProcesses(processes, rawFilter) {
   if (!rawFilter) return processes;
-  const parts = rawFilter.split(/\s+/).map(parseAttributeFilter).filter(Boolean);
-  if (parts.length === 0) return processes;
+  const filters = rawFilter.split(/[,\s]+/).map(parseAttributeFilter).filter(Boolean);
+  if (filters.length === 0) return processes;
   return processes.filter((process) =>
-    parts.every(({ key, value }) => {
-      const haystack = processSearchFields(process);
-      return String(haystack[key] || "").toLowerCase().includes(value.toLowerCase());
-    }),
+    filters.every(({ key, value }) => String(processSearchFields(process)[key] || "").toLowerCase().includes(value.toLowerCase())),
   );
 }
 
 function parseAttributeFilter(text) {
-  const [key, ...rest] = text.split(":");
+  const [key, ...rest] = String(text).split(":");
   const value = rest.join(":");
   if (!key || !value) return null;
   return { key: key.trim(), value: value.trim() };
@@ -244,32 +311,32 @@ function processSearchFields(process) {
     workflow: process.workflow,
     message_id: process.messageId,
     correlation_id: process.correlationId,
+    trace_id: process.traceId,
     status: process.status,
     ...process.tags,
   };
 }
 
 function openProcess(id) {
-  const process = state.processGroups.find((item) => item.id === id);
+  const process = state.processes.find((item) => item.id === id);
   if (!process) return;
-  const tags = process.tags || {};
   els.modalTitle.textContent = process.workflow;
-  els.modalCopy.textContent = `${process.correlationId} · ${statusLabel(process.status)} · ${process.remaining} etapas faltantes`;
+  els.modalCopy.textContent = `${process.correlationId} - ${statusLabel(process.status)} - ${formatDuration(process.durationMs)}`;
   els.modalBody.innerHTML = `
-    <section class="modal-kpis">
-      <div><strong>${process.completed}</strong><span>concluídas</span></div>
-      <div><strong>${process.failed}</strong><span>falhas</span></div>
-      <div><strong>${process.stopped}</strong><span>paradas</span></div>
-      <div><strong>${process.remaining}</strong><span>faltantes</span></div>
+    <section class="process-kpis">
+      <div><strong>${process.completed}</strong><span>Concluidas</span></div>
+      <div><strong>${process.failed}</strong><span>Falhas</span></div>
+      <div><strong>${process.stopped}</strong><span>Paradas</span></div>
+      <div><strong>${process.remaining}</strong><span>Faltantes</span></div>
     </section>
     <section class="modal-tags">
-      ${Object.entries(tags)
+      ${Object.entries(process.tags)
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([key, value]) => `<span><strong>${escapeHTML(key)}</strong>${escapeHTML(value)}</span>`)
         .join("")}
     </section>
-    <section class="timeline">
-      ${processSteps(process).map((step, index) => timelineItem(step, index)).join("")}
+    <section class="step-list">
+      ${processSteps(process).map((step, index) => stepItem(step, index)).join("")}
     </section>
   `;
   els.modalBody.querySelectorAll("[data-step-index]").forEach((item) => {
@@ -285,67 +352,76 @@ function processSteps(process) {
     const key = `${tags.step_index || "0"}:${event.step || tags.handler || event.name}`;
     if (!groups.has(key)) {
       groups.set(key, {
-        step: event.step || tags.handler || event.name,
         index: Number(tags.step_index || 0),
+        step: event.step || tags.handler || event.name,
+        handler: tags.handler || event.step || "-",
+        status: "running",
         startedAt: event.timestamp,
         updatedAt: event.timestamp,
-        status: "running",
+        duration: "",
         input: tags.input_value || "",
         rule: tags.rule_applied || "",
         output: tags.output_value || "",
         failure: tags.failure_reason || "",
-        duration: "",
+        events: [],
       });
     }
     const step = groups.get(key);
+    step.events.push(event);
     step.startedAt = earlier(step.startedAt, event.timestamp);
     step.updatedAt = later(step.updatedAt, event.timestamp);
+    if (tags.duration_ms) step.duration = `${tags.duration_ms} ms`;
     if (tags.input_value) step.input = tags.input_value;
     if (tags.rule_applied) step.rule = tags.rule_applied;
     if (tags.output_value) step.output = tags.output_value;
     if (tags.failure_reason) step.failure = tags.failure_reason;
-    if (tags.duration_ms) step.duration = `${tags.duration_ms} ms`;
     if (["success", "failed", "stopped"].includes(event.status)) step.status = event.status;
   });
   return [...groups.values()].sort((a, b) => a.index - b.index || new Date(a.startedAt) - new Date(b.startedAt));
 }
 
-function timelineItem(step, index) {
+function stepItem(step, index) {
   return `
-    <article class="timeline-item ${step.status || ""}" data-step-index="${index}">
-      <time>${formatTime(step.startedAt)}</time>
-      <div>
-        <strong>${escapeHTML(step.step)}</strong>
-        <p>${escapeHTML(statusLabel(step.status))} · ${escapeHTML(step.duration || "-")}</p>
-        <dl class="step-details">
-          <div><dt>Valor de entrada</dt><dd>${formatDetail(step.input)}</dd></div>
-          <div><dt>Regra aplicada</dt><dd>${formatDetail(step.rule)}</dd></div>
-          <div><dt>Valor de saída</dt><dd>${formatDetail(step.output)}</dd></div>
-          <div><dt>Status</dt><dd>${escapeHTML(statusLabel(step.status))}</dd></div>
-          <div><dt>Motivo da falha/parada</dt><dd>${escapeHTML(step.failure || "-")}</dd></div>
-        </dl>
+    <article class="step-item ${step.status}" data-step-index="${index}">
+      <div class="step-summary">
+        <time>${escapeHTML(formatDateTime(step.startedAt))}</time>
+        <div>
+          <strong>${escapeHTML(step.step)}</strong>
+          <p>${escapeHTML(step.handler)} - ${escapeHTML(step.duration || "-")}</p>
+        </div>
+        <span class="status ${step.status}">${escapeHTML(statusLabel(step.status))}</span>
       </div>
-      <code>#${escapeHTML(step.index)}</code>
+      <dl class="step-details">
+        <div><dt>Valor de entrada</dt><dd>${formatDetail(step.input)}</dd></div>
+        <div><dt>Regra aplicada</dt><dd>${formatDetail(step.rule)}</dd></div>
+        <div><dt>Valor de saida</dt><dd>${formatDetail(step.output)}</dd></div>
+        <div><dt>Status</dt><dd>${escapeHTML(statusLabel(step.status))}</dd></div>
+        <div><dt>Motivo da falha</dt><dd>${escapeHTML(step.failure || "-")}</dd></div>
+      </dl>
     </article>
   `;
 }
 
-function expectedSteps(workflow) {
-  if (workflow === "payment-event-fulfillment") return 8;
-  if (workflow === "order-fail-and-resume") return 7;
-  return 6;
+function syncRangeControls() {
+  const visible = els.rangeMode.value === "custom";
+  els.customRange.hidden = !visible;
+  els.customRange.classList.toggle("visible", visible);
+}
+
+function scheduleRefresh() {
+  clearInterval(state.timer);
+  if (state.settings.refreshInterval > 0) {
+    state.timer = setInterval(refreshData, state.settings.refreshInterval);
+  }
+}
+
+function setStatus(ok, detail = "") {
+  els.dot.className = `dot ${ok ? "ok" : "fail"}`;
+  els.statusText.textContent = ok ? "Online" : `Offline ${detail}`;
 }
 
 function statusLabel(status) {
-  return { completed: "Concluído", success: "Concluído", failed: "Falhou", stopped: "Parado", running: "Em execução" }[status] || status;
-}
-
-function earlier(a, b) {
-  return new Date(a) <= new Date(b) ? a : b;
-}
-
-function later(a, b) {
-  return new Date(a) >= new Date(b) ? a : b;
+  return { completed: "OK", success: "OK", failed: "Erro", stopped: "Parado", running: "Em andamento" }[status] || status || "-";
 }
 
 function formatDetail(value) {
@@ -357,529 +433,99 @@ function prettyJSON(value) {
   try {
     return JSON.stringify(JSON.parse(value), null, 2);
   } catch {
-    return value;
+    return String(value);
   }
 }
 
-function renderDashboardSelect() {
-  els.dashboardSelect.innerHTML = "";
-  state.dashboards.forEach((dashboard) => {
-    const option = document.createElement("option");
-    option.value = dashboard.id;
-    option.textContent = dashboard.name;
-    els.dashboardSelect.append(option);
-  });
-  els.dashboardSelect.value = state.dashboard?.id || "";
+function formatDateTime(value) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(value));
 }
 
-function syncDashboardEditor() {
-  if (!state.dashboard) return;
-  els.dashboardName.value = state.dashboard.name || "";
-  els.dashboardDescription.value = state.dashboard.description || "";
-  els.dashboardJSON.value = JSON.stringify(state.dashboard, null, 2);
-  els.dashboardTitle.textContent = state.dashboard.name || "Dashboard";
-  els.dashboardCopy.textContent = state.dashboard.description || "Dashboard parametrizado em JSON.";
-  syncWidgetForm();
+function formatHour(value) {
+  return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(value);
 }
 
-async function renderDashboard() {
-  if (!state.dashboard) return;
-  els.grid.innerHTML = "";
-  const widgets = [...(state.dashboard.widgets || [])].sort((a, b) => (a.layout?.y || 0) - (b.layout?.y || 0) || (a.layout?.x || 0) - (b.layout?.x || 0));
-  await Promise.all([Promise.all(widgets.map(renderWidget)), loadProcesses()]);
-  els.lastUpdate.textContent = `Atualizado ${formatTime(new Date().toISOString())}`;
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "0 ms";
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(2)} s`;
+  return `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
 }
 
-async function renderWidget(widget) {
-  const card = document.createElement("article");
-  card.className = `widget ${widget.id === state.selectedWidgetId ? "selected" : ""}`;
-  const layout = normalizeLayout(widget.layout);
-  card.style.gridColumn = `${layout.x + 1} / span ${layout.w}`;
-  card.style.gridRow = `${layout.y + 1} / span ${layout.h}`;
-  card.dataset.id = widget.id;
-  card.innerHTML = `
-    <div class="widget-header">
-      <div class="widget-title">
-        <strong>${escapeHTML(widget.title || "Widget")}</strong>
-        <small>${escapeHTML(widget.query || "")}</small>
-      </div>
-      <div class="widget-actions">
-        <button data-action="left" title="Mover esquerda" type="button">&lt;</button>
-        <button data-action="right" title="Mover direita" type="button">&gt;</button>
-        <button data-action="up" title="Mover acima" type="button">^</button>
-        <button data-action="down" title="Mover abaixo" type="button">v</button>
-      </div>
-    </div>
-    <div class="widget-body"><span class="muted">Carregando</span></div>
-  `;
-  card.addEventListener("click", (event) => {
-    const action = event.target?.dataset?.action;
-    if (action) {
-      moveWidget(widget.id, action);
-      return;
-    }
-    selectWidget(widget.id);
-  });
-  els.grid.append(card);
-
-  try {
-    const result = await runWidgetQuery(widget);
-    drawWidget(card.querySelector(".widget-body"), widget, result);
-  } catch (error) {
-    card.querySelector(".widget-body").innerHTML = `<span class="muted">${escapeHTML(error.message)}</span>`;
-  }
+function earlier(a, b) {
+  return new Date(a) <= new Date(b) ? a : b;
 }
 
-async function runWidgetQuery(widget) {
-  const query = parseQuery(widget.query || fallbackQuery(widget));
-  const params = {
-    ...timeWindow(),
-    name: query.metric,
-    groupBy: query.groupBy || widget.groupBy || "",
-  };
-  Object.entries(query.tags).forEach(([key, value]) => {
-    params[`tag.${key}`] = value;
-  });
-  Object.entries(query.tagIn).forEach(([key, values]) => {
-    params[`tagIn.${key}`] = values.join(",");
-  });
-  Object.entries(query.dimensions).forEach(([key, value]) => {
-    params[key] = value;
-  });
-
-  if ((widget.type || widget.chart) === "timeseries" && !params.groupBy) {
-    return { query, series: await getJSON("/v1/metrics/series", { ...params, bucket: "1m" }) };
-  }
-  return { query, summaries: await getJSON("/v1/metrics", params) };
+function later(a, b) {
+  return new Date(a) >= new Date(b) ? a : b;
 }
 
-function parseQuery(raw) {
-  const text = raw.trim();
-  const match = text.match(/^(\w+):([A-Za-z0-9_.-]+)\{([^}]*)\}(?:\s+by\s+\{([^}]+)\})?(?:\.(\w+)\(\))?$/);
-  if (!match) throw new Error("Query invalida");
-
-  const [, aggregation, metric, filterText, groupByRaw, rollup] = match;
-  const query = { aggregation, metric, rollup: rollup || "", groupBy: normalizeGroupBy(groupByRaw || ""), tags: {}, tagIn: {}, dimensions: {} };
-  splitConditions(filterText).forEach((condition) => {
-    const inMatch = condition.match(/^([A-Za-z0-9_.-]+)\s+in\s*\(([^)]+)\)$/i);
-    if (inMatch) {
-      query.tagIn[inMatch[1]] = inMatch[2].split(",").map((item) => item.trim()).filter(Boolean);
-      return;
-    }
-    const eqMatch = condition.match(/^([A-Za-z0-9_.-]+)\s*:\s*([A-Za-z0-9_.-]+)$/);
-    if (!eqMatch) return;
-    const key = eqMatch[1];
-    const value = eqMatch[2];
-    if (["segment", "workflow", "step", "status", "source"].includes(key)) {
-      query.dimensions[key] = value;
-    } else {
-      query.tags[key] = value;
-    }
-  });
-  return query;
-}
-
-function splitConditions(text) {
-  return text
-    .split(/\s+(?:and|or)\s+/i)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function normalizeGroupBy(value) {
-  const clean = value.trim();
-  if (!clean) return "";
-  if (["segment", "workflow", "step", "status", "source"].includes(clean)) return clean;
-  if (clean.startsWith("tag:")) return clean;
-  return `tag:${clean}`;
-}
-
-function drawWidget(body, widget, result) {
-  const type = widget.type || widget.chart || "timeseries";
-  if (type === "indicator") return drawIndicator(body, widget, result.summaries || []);
-  if (type === "table") return drawTable(body, result.summaries || []);
-  if (type === "list") return drawList(body, result.summaries || []);
-  if (type === "bar") return drawBar(body, result.summaries || []);
-  return drawLine(body, result.series || []);
-}
-
-function drawIndicator(body, widget, summaries) {
-  const summary = summaries[0];
-  const value = summary ? formatValue(summary.sum, widget.display?.unit || summary.unit) : "0";
-  body.innerHTML = `<div class="indicator-value">${value}</div><span class="muted">${summary ? `${summary.count} eventos` : "sem dados"}</span>`;
-}
-
-function drawTable(body, summaries) {
-  body.innerHTML = `
-    <table>
-      <thead><tr><th>Grupo</th><th>Total</th><th>Eventos</th></tr></thead>
-      <tbody>${summaries
-        .map((item) => `<tr><td>${escapeHTML(item.group || item.name)}</td><td>${formatValue(item.sum, item.unit)}</td><td>${item.count}</td></tr>`)
-        .join("")}</tbody>
-    </table>
-  `;
-}
-
-function drawList(body, summaries) {
-  body.className = "widget-body list";
-  body.innerHTML = summaries
-    .map((item) => `<div class="list-row"><span>${escapeHTML(item.group || item.name)}</span><strong>${formatValue(item.sum, item.unit)}</strong></div>`)
-    .join("") || `<span class="muted">Sem dados</span>`;
-}
-
-function drawLine(body, series) {
-  body.innerHTML = `<canvas></canvas>`;
-  const canvas = body.querySelector("canvas");
-  const context = prepareCanvas(canvas);
-  const rect = canvas.getBoundingClientRect();
-  const pad = 24;
-  const width = rect.width - pad * 2;
-  const height = rect.height - pad * 2;
-  axis(context, pad, width, height);
-  if (series.length === 0) return emptyCanvas(context, pad, "Sem dados para a query");
-  const max = Math.max(...series.map((point) => point.value), 1);
-  context.strokeStyle = "#246bfe";
-  context.lineWidth = 3;
-  context.beginPath();
-  series.forEach((point, index) => {
-    const x = pad + (series.length === 1 ? width : (index / (series.length - 1)) * width);
-    const y = pad + height - (point.value / max) * height;
-    index === 0 ? context.moveTo(x, y) : context.lineTo(x, y);
-  });
-  context.stroke();
-}
-
-function drawBar(body, summaries) {
-  body.innerHTML = `<canvas></canvas>`;
-  const canvas = body.querySelector("canvas");
-  const context = prepareCanvas(canvas);
-  const rect = canvas.getBoundingClientRect();
-  const pad = 24;
-  const width = rect.width - pad * 2;
-  const height = rect.height - pad * 2;
-  axis(context, pad, width, height);
-  if (summaries.length === 0) return emptyCanvas(context, pad, "Sem dados para a query");
-  const max = Math.max(...summaries.map((item) => item.sum), 1);
-  const gap = 8;
-  const barWidth = Math.max(18, (width - gap * (summaries.length - 1)) / summaries.length);
-  summaries.forEach((item, index) => {
-    const x = pad + index * (barWidth + gap);
-    const barHeight = (item.sum / max) * height;
-    const y = pad + height - barHeight;
-    context.fillStyle = index % 2 ? "#158f72" : "#246bfe";
-    context.fillRect(x, y, Math.min(barWidth, 72), barHeight);
-    context.fillStyle = "#637074";
-    context.fillText(truncate(item.group || item.name, 12), x, pad + height + 16);
-  });
+function floorHour(value) {
+  const date = new Date(value);
+  date.setMinutes(0, 0, 0);
+  return date;
 }
 
 function prepareCanvas(canvas) {
   const ratio = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
-  canvas.width = Math.floor(rect.width * ratio);
-  canvas.height = Math.floor(rect.height * ratio);
+  canvas.width = Math.max(1, Math.floor(rect.width * ratio));
+  canvas.height = Math.max(1, Math.floor(rect.height * ratio));
   const context = canvas.getContext("2d");
   context.scale(ratio, ratio);
-  context.clearRect(0, 0, rect.width, rect.height);
+  context.font = "12px Inter, system-ui, sans-serif";
   return context;
 }
 
-function axis(context, pad, width, height) {
-  context.strokeStyle = "#d8e0e3";
+function drawGrid(context, pad, width, height) {
+  context.strokeStyle = "#e6eaee";
   context.lineWidth = 1;
   context.beginPath();
-  context.moveTo(pad, pad);
-  context.lineTo(pad, pad + height);
-  context.lineTo(pad + width, pad + height);
+  for (let i = 0; i <= 4; i += 1) {
+    const y = pad.top + (height / 4) * i;
+    context.moveTo(pad.left, y);
+    context.lineTo(pad.left + width, y);
+  }
   context.stroke();
 }
 
-function emptyCanvas(context, pad, text) {
-  context.fillStyle = "#637074";
-  context.fillText(text, pad + 10, pad + 24);
-}
-
-function selectWidget(id) {
-  state.selectedWidgetId = id;
-  syncWidgetForm();
-  renderDashboard();
-}
-
-function syncWidgetForm() {
-  const widget = selectedWidget();
-  if (!widget) return;
-  const layout = normalizeLayout(widget.layout);
-  els.widgetType.value = widget.type || "timeseries";
-  els.widgetTitle.value = widget.title || "";
-  els.widgetQuery.value = widget.query || fallbackQuery(widget);
-  els.widgetX.value = layout.x;
-  els.widgetY.value = layout.y;
-  els.widgetW.value = layout.w;
-  els.widgetH.value = layout.h;
-}
-
-function selectedWidget() {
-  return state.dashboard?.widgets?.find((widget) => widget.id === state.selectedWidgetId) || state.dashboard?.widgets?.[0];
-}
-
-function updateSelectedWidget() {
-  const widget = selectedWidget();
-  if (!widget) return;
-  widget.type = els.widgetType.value;
-  widget.chart = els.widgetType.value;
-  widget.title = els.widgetTitle.value;
-  widget.query = els.widgetQuery.value;
-  widget.layout = {
-    x: Number(els.widgetX.value),
-    y: Number(els.widgetY.value),
-    w: Number(els.widgetW.value),
-    h: Number(els.widgetH.value),
-  };
-  syncDashboardJSONFromForm();
-}
-
-function syncDashboardJSONFromForm() {
-  state.dashboard.name = els.dashboardName.value;
-  state.dashboard.description = els.dashboardDescription.value;
-  els.dashboardJSON.value = JSON.stringify(state.dashboard, null, 2);
-  syncDashboardEditor();
-  renderDashboard();
-}
-
-function addWidget() {
-  const y = Math.max(0, ...(state.dashboard.widgets || []).map((widget) => (widget.layout?.y || 0) + (widget.layout?.h || 3)));
-  const widget = {
-    id: crypto.randomUUID ? crypto.randomUUID() : `widget-${Date.now()}`,
-    type: "timeseries",
-    title: "Novo widget",
-    query: "sum:routing_slip.step.completed{source:routing-slip-app}.as_count()",
-    aggregation: "sum",
-    chart: "timeseries",
-    layout: { x: 0, y, w: 6, h: 3 },
-    display: { legend: true },
-  };
-  state.dashboard.widgets = [...(state.dashboard.widgets || []), widget];
-  state.selectedWidgetId = widget.id;
-  syncDashboardJSONFromForm();
-}
-
-function duplicateWidget() {
-  const widget = selectedWidget();
-  if (!widget) return;
-  const copy = JSON.parse(JSON.stringify(widget));
-  copy.id = crypto.randomUUID ? crypto.randomUUID() : `widget-${Date.now()}`;
-  copy.title = `${copy.title} copia`;
-  copy.layout.y = (copy.layout.y || 0) + 1;
-  state.dashboard.widgets.push(copy);
-  state.selectedWidgetId = copy.id;
-  syncDashboardJSONFromForm();
-}
-
-function removeWidget() {
-  const widget = selectedWidget();
-  if (!widget) return;
-  state.dashboard.widgets = state.dashboard.widgets.filter((item) => item.id !== widget.id);
-  state.selectedWidgetId = state.dashboard.widgets[0]?.id || "";
-  syncDashboardJSONFromForm();
-}
-
-function moveWidget(id, action) {
-  const widget = state.dashboard.widgets.find((item) => item.id === id);
-  if (!widget) return;
-  widget.layout = normalizeLayout(widget.layout);
-  if (action === "left") widget.layout.x = Math.max(0, widget.layout.x - 1);
-  if (action === "right") widget.layout.x = Math.min(11, widget.layout.x + 1);
-  if (action === "up") widget.layout.y = Math.max(0, widget.layout.y - 1);
-  if (action === "down") widget.layout.y += 1;
-  syncDashboardJSONFromForm();
-}
-
-function applyJSON() {
-  try {
-    state.dashboard = JSON.parse(els.dashboardJSON.value);
-    state.selectedWidgetId = state.dashboard.widgets?.[0]?.id || "";
-    syncDashboardEditor();
-    renderDashboard();
-    setStatus(true);
-  } catch (error) {
-    setStatus(false, error.message);
-  }
-}
-
-async function saveDashboard() {
-  try {
-    updateSelectedWidget();
-    state.dashboard = await sendJSON("/v1/dashboards", state.dashboard);
-    await loadDashboards();
-    setStatus(true);
-  } catch (error) {
-    setStatus(false, error.message);
-  }
-}
-
-async function deleteDashboard() {
-  if (!state.dashboard?.id) return;
-  try {
-    await fetch(endpoint(`/v1/dashboards/${state.dashboard.id}`), { method: "DELETE" });
-    state.dashboard = null;
-    await loadDashboards();
-  } catch (error) {
-    setStatus(false, error.message);
-  }
-}
-
-function newDashboardDefinition() {
-  return {
-    id: "routing-slip-observability",
-    schemaVersion: 1,
-    name: "Processamento",
-    description: "Visao realtime do processamento de pedidos",
-    refreshSeconds: 5,
-    variables: [],
-    widgets: [
-      {
-        id: "routing-slip-completed",
-        type: "indicator",
-        title: "Etapas concluidas",
-        query: "sum:routing_slip.step.completed{source:routing-slip-app}.as_count()",
-        aggregation: "sum",
-        chart: "indicator",
-        layout: { x: 0, y: 0, w: 3, h: 2 },
-        display: { label: "eventos" },
-      },
-      {
-        id: "routing-slip-failed",
-        type: "indicator",
-        title: "Falhas tecnicas",
-        query: "sum:routing_slip.step.failed{source:routing-slip-app}.as_count()",
-        aggregation: "sum",
-        chart: "indicator",
-        layout: { x: 3, y: 0, w: 3, h: 2 },
-        display: { label: "eventos" },
-      },
-      {
-        id: "routing-slip-stopped",
-        type: "indicator",
-        title: "Paradas funcionais",
-        query: "sum:routing_slip.step.stopped{source:routing-slip-app}.as_count()",
-        aggregation: "sum",
-        chart: "indicator",
-        layout: { x: 6, y: 0, w: 3, h: 2 },
-        display: { label: "eventos" },
-      },
-      {
-        id: "routing-slip-duration",
-        type: "bar",
-        title: "Duracao por etapa",
-        query: "sum:routing_slip.step.duration_ms{source:routing-slip-app} by {step}",
-        aggregation: "sum",
-        chart: "bar",
-        layout: { x: 9, y: 0, w: 3, h: 2 },
-        display: { unit: "ms" },
-      },
-      {
-        id: "routing-slip-throughput",
-        type: "timeseries",
-        title: "Throughput em tempo real",
-        query: "sum:routing_slip.step.completed{source:routing-slip-app}.as_count()",
-        aggregation: "sum",
-        chart: "timeseries",
-        layout: { x: 0, y: 2, w: 8, h: 3 },
-        display: { legend: true },
-      },
-      {
-        id: "routing-slip-steps-table",
-        type: "table",
-        title: "Execucoes por etapa",
-        query: "sum:routing_slip.step.completed{source:routing-slip-app} by {step}",
-        aggregation: "sum",
-        chart: "table",
-        layout: { x: 8, y: 2, w: 4, h: 3 },
-        display: { label: "etapas" },
-      },
-    ],
-  };
-}
-
-function fallbackQuery(widget) {
-  return `${widget.aggregation || "sum"}:${widget.metric || "routing_slip.step.completed"}{source:routing-slip-app}.as_count()`;
-}
-
-function normalizeLayout(layout = {}) {
-  return { x: layout.x || 0, y: layout.y || 0, w: layout.w || 6, h: layout.h || 3 };
-}
-
-function timeWindow() {
-  const to = new Date();
-  const from = new Date(to.getTime() - Number(els.window.value) * 1000);
-  return { from: from.toISOString(), to: to.toISOString() };
-}
-
-function formatValue(value, unit) {
-  if (unit === "BRL") return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
-  return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(value || 0);
-}
-
-function formatTime(value) {
-  return new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(value));
-}
-
-function truncate(value, length) {
-  return value.length > length ? `${value.slice(0, length - 1)}...` : value;
-}
-
 function escapeHTML(value) {
-  return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
 }
 
-function setStatus(ok, detail = "") {
-  els.dot.className = `dot ${ok ? "ok" : "fail"}`;
-  els.statusText.textContent = ok ? "Online" : `Offline ${detail}`;
-}
-
-function schedule() {
-  clearInterval(state.timer);
-  state.timer = setInterval(renderDashboard, Number(els.refresh.value));
-}
-
-els.dashboardSelect.addEventListener("change", () => {
-  state.dashboard = state.dashboards.find((dashboard) => dashboard.id === els.dashboardSelect.value);
-  state.selectedWidgetId = state.dashboard?.widgets?.[0]?.id || "";
-  syncDashboardEditor();
-  renderDashboard();
+els.openConfig.addEventListener("click", () => els.configModal.showModal());
+els.saveConfig.addEventListener("click", () => {
+  saveSettings();
+  refreshData();
 });
-els.toggleEdit.addEventListener("click", () => {
-  state.editing = !state.editing;
-  document.body.classList.toggle("editing", state.editing);
-  els.toggleEdit.textContent = state.editing ? "Visualizar" : "Editar";
+els.refreshNow.addEventListener("click", refreshData);
+els.rangeMode.addEventListener("change", () => {
+  syncRangeControls();
+  refreshData();
 });
-els.saveDashboard.addEventListener("click", saveDashboard);
-els.saveConfig.addEventListener("click", saveConfig);
-els.newDashboard.addEventListener("click", () => {
-  state.dashboard = newDashboardDefinition();
-  state.selectedWidgetId = state.dashboard.widgets[0].id;
-  syncDashboardEditor();
-  renderDashboard();
-});
-els.deleteDashboard.addEventListener("click", deleteDashboard);
-els.refreshNow.addEventListener("click", renderDashboard);
-els.applyJSON.addEventListener("click", applyJSON);
-els.addWidget.addEventListener("click", addWidget);
-els.updateWidget.addEventListener("click", updateSelectedWidget);
-els.duplicateWidget.addEventListener("click", duplicateWidget);
-els.removeWidget.addEventListener("click", removeWidget);
+els.rangeFrom.addEventListener("change", refreshData);
+els.rangeTo.addEventListener("change", refreshData);
 els.processSearch.addEventListener("click", renderProcesses);
+els.processFilter.addEventListener("input", renderProcesses);
 els.processFilter.addEventListener("keydown", (event) => {
   if (event.key === "Enter") renderProcesses();
 });
 els.modalClose.addEventListener("click", () => els.processModal.close());
-els.processModal.addEventListener("click", (event) => {
-  if (event.target === els.processModal) els.processModal.close();
+[els.processModal, els.configModal].forEach((modal) => {
+  modal.addEventListener("click", (event) => {
+    if (event.target === modal) modal.close();
+  });
 });
-els.refresh.addEventListener("change", schedule);
-els.window.addEventListener("change", renderDashboard);
-els.apiUrl.addEventListener("change", loadDashboards);
-window.addEventListener("resize", renderDashboard);
+window.addEventListener("resize", renderHourlyChart);
 
-schedule();
-loadDashboards();
+loadSettings();
+scheduleRefresh();
+refreshData();

@@ -20,7 +20,7 @@ O objetivo do projeto e transformar cada etapa do processamento em uma evidencia
 |---|---|
 | `service` | API HTTP de ingestao, consulta, agregacao, retencao e dashboards. |
 | `agent` | Recebe eventos UDP e encaminha em lote para o service. |
-| `webview` | Interface web para acompanhar dashboards. |
+| `webview` | Interface web para acompanhar processamentos, periodo, filtros, etapas e detalhes. |
 | `DynamoDB` | Persistencia dos eventos para consulta historica. |
 
 ## Execucao no workspace integrado
@@ -47,6 +47,20 @@ URLs principais:
 |---|---|
 | Metrics API | `http://localhost:8080` |
 | Metrics Webview | `http://localhost:5173` |
+
+## Webview de processamento
+
+O webview foi desenhado para acompanhamento operacional em tempo real:
+
+- configuracao de URL e senha/token da API pelo botao de engrenagem;
+- seletor de periodo com intervalos recentes ou periodo exato;
+- grafico de barras com quantidade de processamentos por hora;
+- lista de processamentos com data, workflow, `correlation_id`, `message_id`, duracao, etapas e resultado;
+- filtro por atributo no formato `chave:valor`, por exemplo `correlation_id:abc`, `status:failed` ou `order_id:ORD-1001`;
+- popup de processo com KPIs, tags e timeline de etapas;
+- clique em uma etapa para abrir detalhes de entrada, regra aplicada, saida, status e motivo de falha.
+
+Quando a senha/token e preenchida, o webview envia os headers `Authorization: Bearer <token>` e `X-API-Key: <token>`. O service aceita esses headers em CORS para permitir uso com APIs protegidas por gateway ou proxy.
 
 ## Case ecommerce-distributed
 
