@@ -12,6 +12,7 @@ const state = {
   timer: null,
   events: [],
   processes: [],
+  chartProcesses: [],
 };
 
 const els = {
@@ -115,13 +116,22 @@ async function refreshData() {
   saveSettings();
   try {
     const window = timeWindow();
-    const records = await getJSON("/v1/metrics/events", {
-      ...window,
-      source: "routing-slip-app",
-      limit: 1000,
-    });
+    const chartWindow = hourlyChartWindow();
+    const [records, chartRecords] = await Promise.all([
+      getJSON("/v1/metrics/events", {
+        ...window,
+        source: "routing-slip-app",
+        limit: 1000,
+      }),
+      getJSON("/v1/metrics/events", {
+        ...chartWindow,
+        source: "routing-slip-app",
+        limit: 5000,
+      }),
+    ]);
     state.events = records.map((record) => record.event || record);
     state.processes = groupProcessEvents(records);
+    state.chartProcesses = groupProcessEvents(chartRecords);
     setStatus(true);
     renderAll();
   } catch (error) {
@@ -188,13 +198,14 @@ function inferExpectedSteps(group) {
 function renderAll() {
   const window = timeWindow();
   els.lastUpdate.textContent = `Atualizado ${formatDateTime(new Date().toISOString())}`;
-  els.chartSubtitle.textContent = `${formatDateTime(window.from)} - ${formatDateTime(window.to)}`;
+  const chartWindow = hourlyChartWindow();
+  els.chartSubtitle.textContent = `Ultimas 24 horas: ${formatDateTime(chartWindow.from)} - ${formatDateTime(chartWindow.to)}`;
   renderHourlyChart();
   renderProcesses();
 }
 
 function renderHourlyChart() {
-  const buckets = hourlyBuckets(state.processes);
+  const buckets = hourlyBuckets(state.chartProcesses);
   const canvas = els.hourlyChart;
   const context = prepareCanvas(canvas);
   const rect = canvas.getBoundingClientRect();
@@ -206,7 +217,7 @@ function renderHourlyChart() {
 
   if (buckets.length === 0) {
     context.fillStyle = "#687782";
-    context.fillText("Sem processamentos no periodo", pad.left + 8, pad.top + 24);
+    context.fillText("Sem processamentos nas ultimas 24h", pad.left + 8, pad.top + 24);
     return;
   }
 
@@ -232,7 +243,7 @@ function renderHourlyChart() {
 }
 
 function hourlyBuckets(processes) {
-  const window = timeWindow();
+  const window = hourlyChartWindow();
   const from = floorHour(new Date(window.from));
   const to = floorHour(new Date(window.to));
   const buckets = [];
@@ -248,6 +259,12 @@ function hourlyBuckets(processes) {
     if (process.status === "failed") bucket.failed += 1;
   });
   return buckets;
+}
+
+function hourlyChartWindow() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+  return { from: from.toISOString(), to: to.toISOString() };
 }
 
 function renderProcesses() {
