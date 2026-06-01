@@ -55,12 +55,64 @@ O webview foi desenhado para acompanhamento operacional em tempo real:
 - configuracao de URL e senha/token da API pelo botao de engrenagem;
 - seletor de periodo com intervalos recentes ou periodo exato;
 - grafico de barras com quantidade de processamentos por hora;
+- area de metricas customizadas acima da lista de processamentos;
+- modo de edicao do dashboard, habilitado por toggle, para adicionar, mover, redimensionar, editar e excluir widgets;
 - lista de processamentos com data, workflow, `correlation_id`, `message_id`, duracao, etapas e resultado;
 - filtro por atributo no formato `chave:valor`, por exemplo `correlation_id:abc`, `status:failed` ou `order_id:ORD-1001`;
 - popup de processo com KPIs, tags e timeline de etapas;
 - clique em uma etapa para abrir detalhes de entrada, regra aplicada, saida, status e motivo de falha.
 
 Quando a senha/token e preenchida, o webview envia os headers `Authorization: Bearer <token>` e `X-API-Key: <token>`. O service aceita esses headers em CORS para permitir uso com APIs protegidas por gateway ou proxy.
+
+### Dashboard customizavel
+
+O painel de metricas do webview permite montar indicadores operacionais sem alterar o backend. Ao ativar o modo de edicao, uma paleta lateral fica disponivel com tipos de visualizacao:
+
+| Tipo | Uso |
+|---|---|
+| `bar chart` | Comparar quantidades por status, workflow ou intervalos de tempo. |
+| `pie chart` | Ver distribuicao proporcional de status ou agrupamentos. |
+| `point plot` | Ver dispersao de duracao dos processos. |
+| `query value` | Exibir um numero principal, como total de falhas ou reprocessamentos. |
+| `table` | Listar processos que atendem uma consulta. |
+| `timeseries` | Acompanhar evolucao temporal por rollup. |
+| `top list` | Mostrar maiores ocorrencias por atributo, como workflow ou status. |
+
+No modo de edicao:
+
+- arraste um item da paleta para o grid;
+- arraste um widget existente para reorganizar a ordem;
+- use a borda inferior direita para redimensionar em unidades do grid;
+- use o icone de lixeira para remover;
+- use o icone de lapis para abrir a edicao da query;
+- clique fora do popup ou no `x` para fechar sem salvar.
+
+As configuracoes ficam no `localStorage` do navegador. Isso permite experimentar layouts durante testes locais sem depender de persistencia no service.
+
+### Queries dos widgets
+
+A sintaxe e inspirada em dashboards como Datadog:
+
+```text
+agregacao:metrica{filtros}.rollup(funcao, segundos)
+```
+
+Exemplos:
+
+| Query | Resultado |
+|---|---|
+| `count:processes{*}` | Total de processos no periodo selecionado. |
+| `count:processes{status:completed}` | Processos concluidos com sucesso. |
+| `count:processes{status:failed}` | Processos com falha. |
+| `count:reprocesses{*}` | Processos marcados como reprocessamento. |
+| `avg:duration_ms{status:completed}` | Duracao media de processos concluidos. |
+| `p95:duration_ms{*}` | Percentil 95 de duracao. |
+| `top:workflow{status:failed}` | Ranking de workflows com falha. |
+| `table:processes{status:failed}` | Tabela com processos com falha. |
+| `count:processes{group_by:status}` | Serie agrupada por status. |
+| `count:processes{*}.rollup(count, 60)` | Serie temporal com janelas de 60 segundos. |
+
+Os filtros usam os campos do processo e tags emitidas pelo runtime, como `workflow`, `status`, `correlation_id`, `message_id`, `trace_id`, `handler`, `order_id` ou qualquer tag customizada.
 
 ## Case ecommerce-distributed
 

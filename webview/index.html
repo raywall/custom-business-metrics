@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Processamento | Custom Business Metrics</title>
-    <link rel="stylesheet" href="./styles.css?v=20260528-2" />
+    <link rel="stylesheet" href="./styles.css?v=20260601-1" />
     <style>
       * {
         box-sizing: border-box;
@@ -163,6 +163,12 @@
           <span class="icon-symbol" aria-hidden="true">&#8635;</span>
         </button>
 
+        <button id="edit-dashboard-toggle" class="view-toggle" type="button" aria-pressed="false" title="Editar dashboard">
+          <i aria-hidden="true"></i>
+          <span>Visualizar</span>
+          <span>Editar</span>
+        </button>
+
         <button id="open-config" class="icon-button" type="button" title="Configuracao" aria-label="Configuracao">
           <span class="icon-symbol" aria-hidden="true">&#9881;</span>
         </button>
@@ -181,6 +187,17 @@
         <div class="chart-wrap">
           <canvas id="hourly-chart"></canvas>
         </div>
+      </section>
+
+      <section id="metrics-builder" class="metrics-builder" aria-label="Metricas customizadas">
+        <div class="metrics-builder-head">
+          <div>
+            <h2>Metricas customizadas</h2>
+            <p>Indicadores configuraveis para acompanhar processamentos, falhas e reprocessamentos.</p>
+          </div>
+          <span id="dashboard-edit-hint">Modo visualizacao</span>
+        </div>
+        <div id="metrics-grid" class="metrics-grid"></div>
       </section>
 
       <section class="trace-panel">
@@ -246,6 +263,65 @@
         </section>
         <footer class="modal-footer">
           <button id="save-config" class="primary-button" value="default" type="submit">Salvar</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <aside id="widget-palette" class="widget-palette" aria-hidden="true">
+      <header>
+        <div>
+          <h2>Adicionar elemento</h2>
+          <p>Arraste para o grid de metricas.</p>
+        </div>
+      </header>
+      <div id="widget-palette-list" class="widget-palette-list"></div>
+    </aside>
+
+    <dialog id="widget-editor-modal" class="modal widget-editor-modal">
+      <form method="dialog" class="modal-shell">
+        <header class="modal-header">
+          <div>
+            <h2 id="widget-editor-title">Editar widget</h2>
+            <p>Configure a consulta e visualize o resultado antes de salvar.</p>
+          </div>
+          <button id="widget-editor-close" class="plain-button" value="cancel" type="submit" aria-label="Fechar">x</button>
+        </header>
+        <section class="modal-content widget-editor-content">
+          <div class="widget-editor-grid">
+            <label>
+              Titulo
+              <input id="widget-title-input" type="text" placeholder="Processamentos com sucesso" />
+            </label>
+            <label>
+              Tipo
+              <select id="widget-type-input">
+                <option value="bar">Bar chart</option>
+                <option value="pie">Pie chart</option>
+                <option value="point">Point plot</option>
+                <option value="query_value">Query value</option>
+                <option value="table">Table</option>
+                <option value="timeseries">Timeseries</option>
+                <option value="top_list">Top list</option>
+              </select>
+            </label>
+          </div>
+          <label class="query-editor-field">
+            Query
+            <textarea id="widget-query-input" spellcheck="false" placeholder="count:processes{status:completed}.rollup(count, 60)"></textarea>
+          </label>
+          <div class="query-help">
+            Exemplos: <code>count:processes{*}</code>, <code>count:processes{status:failed}</code>, <code>count:reprocesses{*}</code>, <code>avg:duration_ms{status:completed}</code>, <code>top:workflow{status:failed}</code>
+          </div>
+          <section class="widget-preview">
+            <header>
+              <strong>Preview</strong>
+              <button id="widget-preview-refresh" type="button">Atualizar preview</button>
+            </header>
+            <div id="widget-preview-body"></div>
+          </section>
+        </section>
+        <footer class="modal-footer">
+          <button id="widget-save" class="primary-button" value="default" type="submit">Salvar</button>
         </footer>
       </form>
     </dialog>

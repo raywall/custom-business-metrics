@@ -1,4 +1,15 @@
 const STORAGE_KEY = "custom-business-metrics.webview.settings.v2";
+const DASHBOARD_KEY = "custom-business-metrics.webview.dashboard.v1";
+
+const WIDGET_TYPES = [
+  { type: "bar", label: "Bar chart", icon: "▥", query: "count:processes{status:completed}.rollup(count, 60)", w: 4, h: 2 },
+  { type: "pie", label: "Pie chart", icon: "◔", query: "count:processes{group_by:status}", w: 3, h: 2 },
+  { type: "point", label: "Point plot", icon: "⠿", query: "point:duration_ms{*}", w: 4, h: 2 },
+  { type: "query_value", label: "Query value", icon: "#", query: "count:processes{*}", w: 3, h: 1 },
+  { type: "table", label: "Table", icon: "▤", query: "table:processes{*}", w: 6, h: 3 },
+  { type: "timeseries", label: "Timeseries", icon: "⌁", query: "count:processes{*}.rollup(count, 60)", w: 5, h: 2 },
+  { type: "top_list", label: "Top list", icon: "≡", query: "top:workflow{*}", w: 4, h: 2 },
+];
 
 const state = {
   settings: {
@@ -13,6 +24,11 @@ const state = {
   events: [],
   processes: [],
   chartProcesses: [],
+  editMode: false,
+  widgets: [],
+  editingWidgetId: null,
+  draggedWidgetId: null,
+  resizing: null,
 };
 
 const els = {
@@ -41,6 +57,20 @@ const els = {
   modalTitle: document.querySelector("#modal-title"),
   modalCopy: document.querySelector("#modal-copy"),
   modalBody: document.querySelector("#modal-body"),
+  editDashboardToggle: document.querySelector("#edit-dashboard-toggle"),
+  dashboardEditHint: document.querySelector("#dashboard-edit-hint"),
+  metricsGrid: document.querySelector("#metrics-grid"),
+  widgetPalette: document.querySelector("#widget-palette"),
+  widgetPaletteList: document.querySelector("#widget-palette-list"),
+  widgetEditorModal: document.querySelector("#widget-editor-modal"),
+  widgetEditorClose: document.querySelector("#widget-editor-close"),
+  widgetEditorTitle: document.querySelector("#widget-editor-title"),
+  widgetTitleInput: document.querySelector("#widget-title-input"),
+  widgetTypeInput: document.querySelector("#widget-type-input"),
+  widgetQueryInput: document.querySelector("#widget-query-input"),
+  widgetPreviewRefresh: document.querySelector("#widget-preview-refresh"),
+  widgetPreviewBody: document.querySelector("#widget-preview-body"),
+  widgetSave: document.querySelector("#widget-save"),
 };
 
 function loadSettings() {
@@ -56,6 +86,41 @@ function loadSettings() {
   els.rangeTo.value = state.settings.rangeTo;
   els.refreshInterval.value = String(state.settings.refreshInterval);
   syncRangeControls();
+}
+
+function loadDashboard() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(DASHBOARD_KEY) || "{}");
+    state.widgets = Array.isArray(stored.widgets) ? stored.widgets : defaultWidgets();
+  } catch {
+    state.widgets = defaultWidgets();
+  }
+  if (state.widgets.length === 0) state.widgets = defaultWidgets();
+}
+
+function defaultWidgets() {
+  return [
+    newWidget("query_value", { title: "Processamentos", query: "count:processes{*}", w: 3, h: 1 }),
+    newWidget("query_value", { title: "Sucesso", query: "count:processes{status:completed}", w: 3, h: 1 }),
+    newWidget("query_value", { title: "Erros", query: "count:processes{status:failed}", w: 3, h: 1 }),
+    newWidget("query_value", { title: "Reprocessamentos", query: "count:reprocesses{*}", w: 3, h: 1 }),
+  ];
+}
+
+function saveDashboard() {
+  localStorage.setItem(DASHBOARD_KEY, JSON.stringify({ widgets: state.widgets }));
+}
+
+function newWidget(type, overrides = {}) {
+  const preset = WIDGET_TYPES.find((item) => item.type === type) || WIDGET_TYPES[0];
+  return {
+    id: window.crypto?.randomUUID ? window.crypto.randomUUID() : `widget-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    type,
+    title: overrides.title || preset.label,
+    query: overrides.query || preset.query,
+    w: Number(overrides.w || preset.w || 3),
+    h: Number(overrides.h || preset.h || 2),
+  };
 }
 
 function saveSettings() {
@@ -201,7 +266,143 @@ function renderAll() {
   const chartWindow = hourlyChartWindow();
   els.chartSubtitle.textContent = `Ultimas 24 horas: ${formatDateTime(chartWindow.from)} - ${formatDateTime(chartWindow.to)}`;
   renderHourlyChart();
+  renderWidgets();
   renderProcesses();
+}
+
+function renderWidgetPalette() {
+  els.widgetPaletteList.innerHTML = WIDGET_TYPES.map((item) => `
+    <div class="widget-palette-item" draggable="true" data-widget-type="${escapeHTML(item.type)}">
+      <span class="widget-palette-icon">${escapeHTML(item.icon)}</span>
+      <div>
+        <span>${escapeHTML(item.label)}</span>
+        <em>${escapeHTML(item.query)}</em>
+      </div>
+    </div>
+  `).join("");
+  els.widgetPaletteList.querySelectorAll("[data-widget-type]").forEach((item) => {
+    item.addEventListener("dragstart", (event) => {
+      event.dataTransfer.setData("text/widget-type", item.dataset.widgetType);
+      event.dataTransfer.effectAllowed = "copy";
+    });
+  });
+}
+
+function renderWidgets() {
+  if (!state.widgets.length) {
+    els.metricsGrid.innerHTML = `<div class="metrics-empty">Ative o modo de edicao e arraste widgets para este grid.</div>`;
+    return;
+  }
+  els.metricsGrid.innerHTML = state.widgets.map((widget) => widgetMarkup(widget)).join("");
+  els.metricsGrid.querySelectorAll(".metric-widget").forEach((element) => bindWidgetElement(element));
+  state.widgets.forEach((widget) => renderWidgetBody(widget));
+}
+
+function widgetMarkup(widget) {
+  return `
+    <article class="metric-widget" draggable="${state.editMode ? "true" : "false"}" data-widget-id="${escapeHTML(widget.id)}" style="--widget-w:${widget.w};--widget-h:${widget.h}">
+      <header class="metric-widget-head">
+        <div class="metric-widget-title">
+          <strong>${escapeHTML(widget.title)}</strong>
+          <code>${escapeHTML(widget.query)}</code>
+        </div>
+        <div class="metric-widget-actions">
+          <button class="widget-action" type="button" data-widget-edit="${escapeHTML(widget.id)}" title="Editar" aria-label="Editar">✎</button>
+          <button class="widget-action" type="button" data-widget-delete="${escapeHTML(widget.id)}" title="Excluir" aria-label="Excluir">🗑</button>
+        </div>
+      </header>
+      <div class="metric-widget-body" id="widget-body-${escapeHTML(widget.id)}"></div>
+      <span class="widget-resize" data-widget-resize="${escapeHTML(widget.id)}" aria-hidden="true"></span>
+    </article>
+  `;
+}
+
+function bindWidgetElement(element) {
+  const widgetId = element.dataset.widgetId;
+  element.addEventListener("dragstart", (event) => {
+    if (!state.editMode) return event.preventDefault();
+    state.draggedWidgetId = widgetId;
+    event.dataTransfer.setData("text/widget-id", widgetId);
+    event.dataTransfer.effectAllowed = "move";
+  });
+  element.addEventListener("dragover", (event) => {
+    if (!state.editMode) return;
+    event.preventDefault();
+    element.classList.add("drag-over");
+  });
+  element.addEventListener("dragleave", () => element.classList.remove("drag-over"));
+  element.addEventListener("drop", (event) => {
+    if (!state.editMode) return;
+    event.preventDefault();
+    element.classList.remove("drag-over");
+    const sourceId = event.dataTransfer.getData("text/widget-id");
+    if (!sourceId || sourceId === widgetId) return;
+    moveWidgetBefore(sourceId, widgetId);
+  });
+  element.querySelector("[data-widget-edit]")?.addEventListener("click", () => openWidgetEditor(widgetId));
+  element.querySelector("[data-widget-delete]")?.addEventListener("click", () => deleteWidget(widgetId));
+  element.querySelector("[data-widget-resize]")?.addEventListener("mousedown", (event) => startWidgetResize(event, widgetId));
+}
+
+function renderWidgetBody(widget, target = document.getElementById(`widget-body-${widget.id}`)) {
+  if (!target) return;
+  const result = evaluateWidgetQuery(widget.query, widget.type);
+  target.innerHTML = "";
+  if (result.error) {
+    target.innerHTML = `<p class="metric-note">${escapeHTML(result.error)}</p>`;
+    return;
+  }
+  if (widget.type === "query_value") {
+    target.innerHTML = `<div class="metric-value"><strong>${escapeHTML(formatMetricNumber(result.value))}</strong><span>${escapeHTML(result.label)}</span></div>`;
+    return;
+  }
+  if (widget.type === "table") {
+    target.innerHTML = widgetTable(result.rows || []);
+    return;
+  }
+  if (widget.type === "top_list") {
+    target.innerHTML = widgetTopList(result.rows || []);
+    return;
+  }
+  if (!result.series && Number.isFinite(result.value)) {
+    result.series = [{ label: result.label || widget.title, value: result.value }];
+  }
+  if (!result.points) result.points = processPoints(filterQueryProcesses(state.processes, parseMetricQuery(widget.query).filters));
+  if (!result.series) result.series = [];
+  const canvas = document.createElement("canvas");
+  canvas.className = "widget-canvas";
+  target.appendChild(canvas);
+  drawWidgetChart(canvas, widget.type, result);
+}
+
+function widgetTable(rows) {
+  const visible = rows.slice(0, 8);
+  if (!visible.length) return `<p class="metric-note">Sem dados para a query.</p>`;
+  return `
+    <table class="widget-table">
+      <thead><tr><th>Data</th><th>Workflow</th><th>Status</th><th>Duração</th></tr></thead>
+      <tbody>
+        ${visible.map((item) => `<tr><td>${escapeHTML(formatDateTime(item.updatedAt))}</td><td>${escapeHTML(item.workflow)}</td><td>${escapeHTML(statusLabel(item.status))}</td><td>${escapeHTML(formatDuration(item.durationMs))}</td></tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
+function widgetTopList(rows) {
+  if (!rows.length) return `<p class="metric-note">Sem dados para a query.</p>`;
+  return `
+    <table class="widget-top-list">
+      <tbody>${rows.slice(0, 8).map((row, index) => `<tr><td>${index + 1}. ${escapeHTML(row.label)}</td><td><strong>${escapeHTML(formatMetricNumber(row.value))}</strong></td></tr>`).join("")}</tbody>
+    </table>`;
+}
+
+function drawWidgetChart(canvas, type, result) {
+  const context = prepareCanvas(canvas);
+  const rect = canvas.getBoundingClientRect();
+  context.clearRect(0, 0, rect.width, rect.height);
+  if (type === "pie") return drawPie(context, rect, result.series);
+  if (type === "point") return drawPoints(context, rect, result.points);
+  if (type === "timeseries") return drawLine(context, rect, result.series);
+  return drawBars(context, rect, result.series);
 }
 
 function renderHourlyChart() {
@@ -514,6 +715,309 @@ function drawGrid(context, pad, width, height) {
   context.stroke();
 }
 
+function evaluateWidgetQuery(rawQuery, widgetType) {
+  const parsed = parseMetricQuery(rawQuery);
+  const processes = filterQueryProcesses(state.processes, parsed.filters);
+  if (parsed.metric === "reprocesses") {
+    const reprocesses = processes.filter(isReprocess);
+    return seriesResult(parsed, reprocesses, "Reprocessamentos");
+  }
+  if (parsed.action === "avg" && parsed.metric === "duration_ms") {
+    return { value: average(processes.map((item) => item.durationMs)), label: "Duração média" };
+  }
+  if (parsed.action === "p95" && parsed.metric === "duration_ms") {
+    return { value: percentile(processes.map((item) => item.durationMs), 95), label: "P95 duração" };
+  }
+  if (parsed.action === "top") {
+    const key = parsed.metric || "workflow";
+    return { rows: topRows(processes, key) };
+  }
+  if (parsed.action === "table" || widgetType === "table") {
+    return { rows: processes };
+  }
+  if (parsed.groupBy) {
+    return { series: topRows(processes, parsed.groupBy).map((row) => ({ label: row.label, value: row.value })) };
+  }
+  return seriesResult(parsed, processes, "Processamentos");
+}
+
+function parseMetricQuery(rawQuery) {
+  const query = String(rawQuery || "count:processes{*}").trim();
+  const match = query.match(/^([a-z_]+):([a-zA-Z0-9_.-]+)\{([^}]*)\}(?:\.rollup\(([^)]*)\))?/);
+  if (!match) return { action: "count", metric: "processes", filters: {}, rollupSeconds: 3600 };
+  const filters = {};
+  let groupBy = "";
+  String(match[3] || "*").split(",").map((item) => item.trim()).filter(Boolean).forEach((item) => {
+    if (item === "*") return;
+    const [key, ...rest] = item.split(":");
+    const value = rest.join(":");
+    if (key === "group_by") groupBy = value;
+    else if (key && value) filters[key] = value;
+  });
+  const rollup = String(match[4] || "").split(",").map((part) => part.trim());
+  return {
+    action: match[1],
+    metric: match[2],
+    filters,
+    groupBy,
+    rollupSeconds: Number(rollup[1] || 3600),
+  };
+}
+
+function filterQueryProcesses(processes, filters) {
+  return processes.filter((process) =>
+    Object.entries(filters || {}).every(([key, expected]) => String(processSearchFields(process)[key] ?? "").toLowerCase() === String(expected).toLowerCase()),
+  );
+}
+
+function seriesResult(parsed, processes, label) {
+  if (parsed.rollupSeconds && parsed.rollupSeconds < 3600) {
+    return { series: timeBuckets(processes, parsed.rollupSeconds), value: processes.length, label };
+  }
+  return { series: statusSeries(processes), points: processPoints(processes), value: processes.length, label };
+}
+
+function statusSeries(processes) {
+  const statuses = ["completed", "failed", "stopped", "running"];
+  return statuses.map((status) => ({ label: statusLabel(status), value: processes.filter((item) => item.status === status).length }));
+}
+
+function timeBuckets(processes, seconds) {
+  const window = timeWindow();
+  const size = Math.max(60, Number(seconds || 3600)) * 1000;
+  const from = new Date(window.from);
+  const to = new Date(window.to);
+  const buckets = [];
+  for (let cursor = new Date(from); cursor <= to; cursor = new Date(cursor.getTime() + size)) {
+    buckets.push({ start: cursor, label: seconds < 3600 ? formatHour(cursor) : formatDateTime(cursor.toISOString()), value: 0 });
+  }
+  processes.forEach((process) => {
+    const index = Math.floor((new Date(process.startedAt) - from) / size);
+    if (buckets[index]) buckets[index].value += 1;
+  });
+  return buckets;
+}
+
+function processPoints(processes) {
+  return processes.map((item, index) => ({ x: index + 1, y: item.durationMs, status: item.status }));
+}
+
+function topRows(processes, key) {
+  const counts = new Map();
+  processes.forEach((process) => {
+    const value = processSearchFields(process)[key] || "-";
+    counts.set(value, (counts.get(value) || 0) + 1);
+  });
+  return [...counts.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
+}
+
+function isReprocess(process) {
+  const tags = process.tags || {};
+  return ["reprocess", "reprocessed", "reprocessar"].some((key) => String(tags[key] || "").toLowerCase() === "true")
+    || process.events.some((event) => /reprocess/i.test(event.name || "") || /reprocess/i.test((event.tags || {}).event || ""));
+}
+
+function average(values) {
+  const list = values.filter((value) => Number.isFinite(value));
+  if (!list.length) return 0;
+  return Math.round(list.reduce((sum, value) => sum + value, 0) / list.length);
+}
+
+function percentile(values, percent) {
+  const list = values.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
+  if (!list.length) return 0;
+  return list[Math.min(list.length - 1, Math.ceil((percent / 100) * list.length) - 1)];
+}
+
+function drawBars(context, rect, series) {
+  const pad = { top: 14, right: 10, bottom: 24, left: 28 };
+  const width = rect.width - pad.left - pad.right;
+  const height = rect.height - pad.top - pad.bottom;
+  drawGrid(context, pad, width, height);
+  const max = Math.max(...series.map((item) => item.value), 1);
+  const gap = 8;
+  const barWidth = Math.max(12, (width - gap * (series.length - 1)) / Math.max(series.length, 1));
+  series.forEach((item, index) => {
+    const x = pad.left + index * (barWidth + gap);
+    const barHeight = (item.value / max) * height;
+    context.fillStyle = ["#39a66a", "#d83b3b", "#f5a623", "#2f74d0"][index % 4];
+    context.fillRect(x, pad.top + height - barHeight, barWidth, barHeight);
+    context.fillStyle = "#687782";
+    context.fillText(String(item.label).slice(0, 8), x, pad.top + height + 17);
+  });
+}
+
+function drawLine(context, rect, series) {
+  const pad = { top: 14, right: 12, bottom: 24, left: 28 };
+  const width = rect.width - pad.left - pad.right;
+  const height = rect.height - pad.top - pad.bottom;
+  drawGrid(context, pad, width, height);
+  const max = Math.max(...series.map((item) => item.value), 1);
+  context.beginPath();
+  series.forEach((item, index) => {
+    const x = pad.left + (width / Math.max(series.length - 1, 1)) * index;
+    const y = pad.top + height - (item.value / max) * height;
+    if (index === 0) context.moveTo(x, y);
+    else context.lineTo(x, y);
+  });
+  context.strokeStyle = "#2f74d0";
+  context.lineWidth = 2;
+  context.stroke();
+}
+
+function drawPoints(context, rect, points) {
+  const pad = { top: 14, right: 12, bottom: 24, left: 34 };
+  const width = rect.width - pad.left - pad.right;
+  const height = rect.height - pad.top - pad.bottom;
+  drawGrid(context, pad, width, height);
+  const max = Math.max(...points.map((item) => item.y), 1);
+  points.slice(-80).forEach((item, index, list) => {
+    const x = pad.left + (width / Math.max(list.length - 1, 1)) * index;
+    const y = pad.top + height - (item.y / max) * height;
+    context.fillStyle = item.status === "failed" ? "#d83b3b" : "#2f74d0";
+    context.beginPath();
+    context.arc(x, y, 3, 0, Math.PI * 2);
+    context.fill();
+  });
+}
+
+function drawPie(context, rect, series) {
+  const total = Math.max(series.reduce((sum, item) => sum + item.value, 0), 1);
+  const radius = Math.max(20, Math.min(rect.width, rect.height) / 2 - 18);
+  const cx = rect.width / 2;
+  const cy = rect.height / 2;
+  let start = -Math.PI / 2;
+  series.forEach((item, index) => {
+    const slice = (item.value / total) * Math.PI * 2;
+    context.fillStyle = ["#39a66a", "#d83b3b", "#f5a623", "#2f74d0", "#8f76b6"][index % 5];
+    context.beginPath();
+    context.moveTo(cx, cy);
+    context.arc(cx, cy, radius, start, start + slice);
+    context.closePath();
+    context.fill();
+    start += slice;
+  });
+}
+
+function formatMetricNumber(value) {
+  if (value >= 1000 && value < 1_000_000) return new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 }).format(value);
+  return new Intl.NumberFormat("pt-BR").format(value || 0);
+}
+
+function setDashboardEditMode(enabled) {
+  state.editMode = Boolean(enabled);
+  document.body.classList.toggle("dashboard-editing", state.editMode);
+  els.editDashboardToggle.classList.toggle("editing", state.editMode);
+  els.editDashboardToggle.setAttribute("aria-pressed", String(state.editMode));
+  els.dashboardEditHint.textContent = state.editMode ? "Modo edicao: arraste, redimensione e configure widgets" : "Modo visualizacao";
+  renderWidgets();
+}
+
+function moveWidgetBefore(sourceId, targetId) {
+  const sourceIndex = state.widgets.findIndex((item) => item.id === sourceId);
+  const targetIndex = state.widgets.findIndex((item) => item.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0) return;
+  const [widget] = state.widgets.splice(sourceIndex, 1);
+  const nextTargetIndex = state.widgets.findIndex((item) => item.id === targetId);
+  state.widgets.splice(nextTargetIndex, 0, widget);
+  saveDashboard();
+  renderWidgets();
+}
+
+function addWidget(type) {
+  state.widgets.push(newWidget(type));
+  saveDashboard();
+  renderWidgets();
+}
+
+function deleteWidget(widgetId) {
+  state.widgets = state.widgets.filter((item) => item.id !== widgetId);
+  saveDashboard();
+  renderWidgets();
+}
+
+function openWidgetEditor(widgetId) {
+  const widget = state.widgets.find((item) => item.id === widgetId);
+  if (!widget) return;
+  state.editingWidgetId = widgetId;
+  els.widgetEditorTitle.textContent = `Editar ${widget.title}`;
+  els.widgetTitleInput.value = widget.title;
+  els.widgetTypeInput.value = widget.type;
+  els.widgetQueryInput.value = widget.query;
+  renderWidgetPreview();
+  els.widgetEditorModal.showModal();
+}
+
+function renderWidgetPreview() {
+  const widget = {
+    id: "preview",
+    title: els.widgetTitleInput.value || "Preview",
+    type: els.widgetTypeInput.value,
+    query: els.widgetQueryInput.value,
+    w: 4,
+    h: 2,
+  };
+  els.widgetPreviewBody.innerHTML = `<div class="metric-widget" style="height:220px"><div class="metric-widget-body" id="widget-preview-target"></div></div>`;
+  renderWidgetBody(widget, document.querySelector("#widget-preview-target"));
+}
+
+function saveWidgetEditor() {
+  const widget = state.widgets.find((item) => item.id === state.editingWidgetId);
+  if (!widget) return;
+  widget.title = els.widgetTitleInput.value.trim() || widget.title;
+  widget.type = els.widgetTypeInput.value;
+  widget.query = els.widgetQueryInput.value.trim() || widget.query;
+  saveDashboard();
+  renderWidgets();
+}
+
+function startWidgetResize(event, widgetId) {
+  event.preventDefault();
+  event.stopPropagation();
+  const widget = state.widgets.find((item) => item.id === widgetId);
+  if (!widget) return;
+  const element = document.querySelector(`[data-widget-id="${CSS.escape(widgetId)}"]`);
+  const gridStyle = getComputedStyle(els.metricsGrid);
+  const columnCount = getComputedStyle(els.metricsGrid).gridTemplateColumns.split(" ").filter(Boolean).length || 12;
+  const gap = Number.parseFloat(gridStyle.gap) || 10;
+  const rowHeight = Number.parseFloat(gridStyle.getPropertyValue("--cell")) || 96;
+  const columnWidth = (els.metricsGrid.clientWidth - gap * (columnCount - 1)) / columnCount;
+  state.resizing = {
+    widget,
+    element,
+    x: event.clientX,
+    y: event.clientY,
+    w: widget.w,
+    h: widget.h,
+    columnUnit: Math.max(24, columnWidth + gap),
+    rowUnit: Math.max(24, rowHeight + gap),
+  };
+  document.body.classList.add("widget-resizing");
+  document.addEventListener("mousemove", resizeWidget);
+  document.addEventListener("mouseup", stopWidgetResize, { once: true });
+}
+
+function resizeWidget(event) {
+  if (!state.resizing) return;
+  event.preventDefault();
+  const dx = Math.round((event.clientX - state.resizing.x) / state.resizing.columnUnit);
+  const dy = Math.round((event.clientY - state.resizing.y) / state.resizing.rowUnit);
+  state.resizing.widget.w = Math.max(2, Math.min(12, state.resizing.w + dx));
+  state.resizing.widget.h = Math.max(1, Math.min(8, state.resizing.h + dy));
+  if (state.resizing.element) {
+    state.resizing.element.style.setProperty("--widget-w", state.resizing.widget.w);
+    state.resizing.element.style.setProperty("--widget-h", state.resizing.widget.h);
+  }
+}
+
+function stopWidgetResize() {
+  document.removeEventListener("mousemove", resizeWidget);
+  document.body.classList.remove("widget-resizing");
+  state.resizing = null;
+  saveDashboard();
+  renderWidgets();
+}
+
 function escapeHTML(value) {
   return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
 }
@@ -536,13 +1040,38 @@ els.processFilter.addEventListener("keydown", (event) => {
   if (event.key === "Enter") renderProcesses();
 });
 els.modalClose.addEventListener("click", () => els.processModal.close());
-[els.processModal, els.configModal].forEach((modal) => {
+els.editDashboardToggle.addEventListener("click", () => setDashboardEditMode(!state.editMode));
+els.metricsGrid.addEventListener("dragover", (event) => {
+  if (!state.editMode) return;
+  if (event.dataTransfer.types.includes("text/widget-type")) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+});
+els.metricsGrid.addEventListener("drop", (event) => {
+  if (!state.editMode) return;
+  const type = event.dataTransfer.getData("text/widget-type");
+  if (!type) return;
+  event.preventDefault();
+  addWidget(type);
+});
+els.widgetPreviewRefresh.addEventListener("click", renderWidgetPreview);
+els.widgetSave.addEventListener("click", saveWidgetEditor);
+[els.widgetTitleInput, els.widgetTypeInput, els.widgetQueryInput].forEach((input) => {
+  input.addEventListener("input", renderWidgetPreview);
+});
+[els.processModal, els.configModal, els.widgetEditorModal].forEach((modal) => {
   modal.addEventListener("click", (event) => {
     if (event.target === modal) modal.close();
   });
 });
-window.addEventListener("resize", renderHourlyChart);
+window.addEventListener("resize", () => {
+  renderHourlyChart();
+  renderWidgets();
+});
 
 loadSettings();
+loadDashboard();
+renderWidgetPalette();
 scheduleRefresh();
 refreshData();
