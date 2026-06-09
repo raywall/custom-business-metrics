@@ -29,6 +29,8 @@ type MetricEvent struct {
 	Step      string            `json:"step,omitempty"`
 	Status    string            `json:"status,omitempty"`
 	Source    string            `json:"source,omitempty"`
+	TraceID   string            `json:"trace_id,omitempty"`
+	SpanID    string            `json:"span_id,omitempty"`
 	Tags      map[string]string `json:"tags,omitempty"`
 	Timestamp time.Time         `json:"timestamp"`
 }
@@ -60,6 +62,8 @@ func (m *MetricEvent) Validate(now time.Time) error {
 	if m.Tags == nil {
 		m.Tags = map[string]string{}
 	}
+	m.TraceID = strings.TrimSpace(m.TraceID)
+	m.SpanID = strings.TrimSpace(m.SpanID)
 	normalized := map[string]string{}
 	for key, value := range m.Tags {
 		key = strings.TrimSpace(key)
@@ -67,6 +71,18 @@ func (m *MetricEvent) Validate(now time.Time) error {
 		if key != "" && value != "" {
 			normalized[key] = value
 		}
+	}
+	if m.TraceID == "" {
+		m.TraceID = normalized["trace_id"]
+	}
+	if m.SpanID == "" {
+		m.SpanID = normalized["span_id"]
+	}
+	if m.TraceID != "" {
+		normalized["trace_id"] = m.TraceID
+	}
+	if m.SpanID != "" {
+		normalized["span_id"] = m.SpanID
 	}
 	m.Tags = normalized
 	return nil
@@ -121,7 +137,28 @@ type MetricPoint struct {
 
 // RuntimeConfig stores operational settings that affect ingestion and query.
 type RuntimeConfig struct {
-	RetentionDays int `json:"retentionDays"`
+	RetentionDays int                 `json:"retentionDays"`
+	Features      RuntimeFeatureFlags `json:"features,omitempty"`
+	Security      RuntimeSecurity     `json:"security,omitempty"`
+}
+
+// RuntimeFeatureFlags prepares optional platform capabilities.
+type RuntimeFeatureFlags struct {
+	TracingEnabled     bool `json:"tracingEnabled"`
+	MCPEnabled         bool `json:"mcpEnabled"`
+	AsyncIngestEnabled bool `json:"asyncIngestEnabled"`
+	TraceIndexEnabled  bool `json:"traceIndexEnabled"`
+}
+
+// RuntimeSecurity stores operational safety settings.
+type RuntimeSecurity struct {
+	Redaction RuntimeRedaction `json:"redaction,omitempty"`
+}
+
+// RuntimeRedaction describes fields that must be masked in diagnostics.
+type RuntimeRedaction struct {
+	Enabled bool     `json:"enabled"`
+	Fields  []string `json:"fields,omitempty"`
 }
 
 // Dashboard stores a dashboard definition managed by users.

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"custom-business-metrics/service/internal/core"
+	"github.com/raywall/custom-business-metrics/service/internal/core"
 )
 
 // MetricService coordinates metric ingestion and query use cases.

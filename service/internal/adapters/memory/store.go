@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"custom-business-metrics/service/internal/core"
+	"github.com/raywall/custom-business-metrics/service/internal/core"
 )
 
 // Store is an in-memory implementation of all repository ports.

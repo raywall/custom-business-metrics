@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"custom-business-metrics/service/internal/core"
+	"github.com/raywall/custom-business-metrics/service/internal/core"
 )
 
 func matches(event core.MetricEvent, filter core.MetricFilter) bool {

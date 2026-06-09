@@ -1,4 +1,4 @@
-module custom-business-metrics/service
+module github.com/raywall/custom-business-metrics/service
 
 go 1.24
 

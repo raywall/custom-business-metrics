@@ -3,167 +3,340 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Custom Business Metrics</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <title>Processamento | Custom Business Metrics</title>
+    <link rel="stylesheet" href="./styles.css?v=20260601-1" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 1080px;
+        background: #f4f6f8;
+        color: #24323a;
+        font: 13px/1.4 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .app-header,
+      .brand,
+      .connection,
+      .header-tools,
+      .range-picker,
+      .custom-range,
+      .panel-title,
+      .trace-toolbar,
+      .search-box {
+        display: flex;
+        align-items: center;
+      }
+
+      .app-header {
+        min-height: 54px;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 8px 14px;
+        border-bottom: 1px solid #dfe5ea;
+        background: #fff;
+      }
+
+      .brand {
+        gap: 12px;
+        min-width: 280px;
+      }
+
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border-radius: 6px;
+        background: #2d3541;
+        color: #fff;
+        font-size: 11px;
+        font-weight: 800;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .brand p {
+        margin: 2px 0 0;
+      }
+
+      .header-tools {
+        flex: 1;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+
+      .custom-range[hidden] {
+        display: none !important;
+      }
+
+      .icon-button {
+        width: 34px !important;
+        height: 32px !important;
+        display: grid;
+        place-items: center;
+        padding: 0;
+        border: 1px solid #cbd4dc;
+        border-radius: 4px;
+        background: #fff;
+        color: #24323a;
+        font-size: 16px;
+        line-height: 1;
+      }
+
+      .page {
+        display: grid;
+        gap: 14px;
+        padding: 14px;
+      }
+
+      .chart-panel,
+      .trace-panel {
+        border: 1px solid #dfe5ea;
+        background: #fff;
+      }
+
+      .chart-wrap {
+        height: 200px;
+        padding: 10px 12px 14px;
+      }
+
+      canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      @media (max-width: 760px) {
+        body {
+          min-width: 0;
+        }
+
+        .app-header,
+        .header-tools,
+        .trace-toolbar {
+          align-items: stretch;
+          flex-direction: column;
+        }
+      }
+    </style>
   </head>
   <body>
-    <header class="topbar">
-      <div>
-        <h1>Custom Business Metrics</h1>
-        <p>Dashboards dinamicos para metricas de negocio</p>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark">CBM</span>
+        <div>
+          <h1>Processamento</h1>
+          <p>Visao realtime do processamento de pedidos</p>
+        </div>
       </div>
-      <div class="top-actions">
+
+      <div class="header-tools">
         <div class="connection">
           <span id="status-dot" class="dot"></span>
           <span id="status-text">Conectando</span>
         </div>
-        <button id="toggle-edit" type="button">Editar</button>
-        <button id="save-dashboard" class="primary" type="button">Salvar</button>
+
+        <div class="range-picker">
+          <select id="range-mode" aria-label="Periodo">
+            <option value="15m">Ultimos 15 minutos</option>
+            <option value="30m">Ultimos 30 minutos</option>
+            <option value="1h">Ultima hora</option>
+            <option value="6h">Ultimas 6 horas</option>
+            <option value="24h">Ultimas 24 horas</option>
+            <option value="custom">Periodo exato</option>
+          </select>
+          <div id="custom-range" class="custom-range" hidden>
+            <input id="range-from" type="datetime-local" aria-label="Inicio" />
+            <span>ate</span>
+            <input id="range-to" type="datetime-local" aria-label="Fim" />
+          </div>
+        </div>
+
+        <button id="refresh-now" class="icon-button" type="button" title="Atualizar" aria-label="Atualizar">
+          <span class="icon-symbol" aria-hidden="true">&#8635;</span>
+        </button>
+
+        <button id="edit-dashboard-toggle" class="view-toggle" type="button" aria-pressed="false" title="Editar dashboard">
+          <i aria-hidden="true"></i>
+          <span>Visualizar</span>
+          <span>Editar</span>
+        </button>
+
+        <button id="open-config" class="icon-button" type="button" title="Configuracao" aria-label="Configuracao">
+          <span class="icon-symbol" aria-hidden="true">&#9881;</span>
+        </button>
       </div>
     </header>
 
-    <main class="layout">
-      <aside class="sidebar">
-        <label>
-          API
-          <input id="api-url" type="url" value="http://localhost:8080" />
-        </label>
-        <label>
-          Dashboard
-          <select id="dashboard-select"></select>
-        </label>
-        <div class="button-row">
-          <button id="new-dashboard" type="button">Novo</button>
-          <button id="delete-dashboard" type="button">Excluir</button>
-        </div>
-        <label>
-          Janela
-          <select id="window">
-            <option value="900">15 min</option>
-            <option value="1800" selected>30 min</option>
-            <option value="3600">1 hora</option>
-            <option value="21600">6 horas</option>
-          </select>
-        </label>
-        <label>
-          Atualizacao
-          <select id="refresh">
-            <option value="3000">3s</option>
-            <option value="5000" selected>5s</option>
-            <option value="10000">10s</option>
-            <option value="30000">30s</option>
-          </select>
-        </label>
-        <label>
-          Retencao em dias
-          <input id="retention-days" type="number" min="1" value="7" />
-        </label>
-        <button id="save-config" type="button">Salvar retencao</button>
-        <button id="refresh-now" class="primary" type="button">Atualizar</button>
-
-        <section class="editor-panel" id="editor-panel">
-          <h2>Dashboard JSON</h2>
-          <label>
-            Nome
-            <input id="dashboard-name" type="text" />
-          </label>
-          <label>
-            Descricao
-            <input id="dashboard-description" type="text" />
-          </label>
-          <label>
-            JSON
-            <textarea id="dashboard-json" spellcheck="false"></textarea>
-          </label>
-          <div class="button-row">
-            <button id="apply-json" type="button">Aplicar JSON</button>
-            <button id="add-widget" type="button">Adicionar widget</button>
-          </div>
-        </section>
-      </aside>
-
-      <section class="workspace">
-        <section class="dashboard-head">
+    <main class="page">
+      <section class="chart-panel">
+        <div class="panel-title">
           <div>
-            <h2 id="dashboard-title">Dashboard</h2>
-            <p id="dashboard-copy">-</p>
+            <h2>Processamentos por hora</h2>
+            <p id="chart-subtitle">-</p>
           </div>
           <span id="last-update">-</span>
-        </section>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="hourly-chart"></canvas>
+        </div>
+      </section>
 
-        <section class="widget-form" id="widget-form">
-          <h2>Widget selecionado</h2>
-          <div class="form-grid">
-            <label>
-              Tipo
-              <select id="widget-type">
-                <option value="indicator">Indicador</option>
-                <option value="timeseries">Grafico temporal</option>
-                <option value="bar">Barras</option>
-                <option value="table">Tabela</option>
-                <option value="list">Lista</option>
-              </select>
-            </label>
-            <label>
-              Titulo
-              <input id="widget-title" type="text" />
-            </label>
-            <label class="wide">
-              Query
-              <input id="widget-query" type="text" placeholder="sum:routing_slip.step.completed{source:routing-slip-app}.as_count()" />
-            </label>
-            <label>
-              X
-              <input id="widget-x" type="number" min="0" max="11" />
-            </label>
-            <label>
-              Y
-              <input id="widget-y" type="number" min="0" />
-            </label>
-            <label>
-              W
-              <input id="widget-w" type="number" min="2" max="12" />
-            </label>
-            <label>
-              H
-              <input id="widget-h" type="number" min="2" max="8" />
-            </label>
+      <section id="metrics-builder" class="metrics-builder" aria-label="Metricas customizadas">
+        <div class="metrics-builder-head">
+          <div>
+            <h2>Metricas customizadas</h2>
+            <p>Indicadores configuraveis para acompanhar processamentos, falhas e reprocessamentos.</p>
           </div>
-          <div class="button-row">
-            <button id="update-widget" type="button">Atualizar widget</button>
-            <button id="duplicate-widget" type="button">Duplicar</button>
-            <button id="remove-widget" type="button">Remover</button>
-          </div>
-        </section>
+          <span id="dashboard-edit-hint">Modo visualizacao</span>
+        </div>
+        <div id="metrics-grid" class="metrics-grid"></div>
+      </section>
 
-        <section class="dashboard-grid" id="dashboard-grid"></section>
-
-        <section class="process-panel">
-          <div class="process-header">
-            <div>
-              <h2>Processamentos</h2>
-              <p>Filtre por qualquer atributo usando chave:valor, como correlation_id:corr-payment-fulfillment-001 ou id_cliente:CLI-001.</p>
-            </div>
-            <div class="process-search">
-              <input id="process-filter" type="text" placeholder="correlation_id:corr-payment-fulfillment-001" />
-              <button id="process-search" type="button">Filtrar</button>
-            </div>
+      <section class="trace-panel">
+        <div class="trace-toolbar">
+          <div>
+            <h2>Processamentos</h2>
+            <p id="process-summary">-</p>
           </div>
-          <div id="process-summary" class="process-summary"></div>
-          <div id="process-list" class="process-list"></div>
-        </section>
+          <div class="search-box">
+            <input id="process-filter" type="search" placeholder="correlation_id:valor, status:failed, order_id:ORD-1001" />
+            <button id="process-search" type="button">Buscar</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="process-table">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Workflow</th>
+                <th>Correlation ID</th>
+                <th>Message ID</th>
+                <th>Duracao</th>
+                <th>Etapas</th>
+                <th>Resultado</th>
+                <th>Tags</th>
+              </tr>
+            </thead>
+            <tbody id="process-list"></tbody>
+          </table>
+        </div>
       </section>
     </main>
 
-    <dialog id="process-modal" class="process-modal">
-      <div class="modal-head">
+    <dialog id="config-modal" class="modal small-modal">
+      <form method="dialog" class="modal-shell">
+        <header class="modal-header">
+          <div>
+            <h2>Configuracao</h2>
+            <p>Conexao usada para consultar as metricas.</p>
+          </div>
+          <button class="plain-button" value="cancel" aria-label="Fechar" type="submit">x</button>
+        </header>
+        <section class="modal-content config-grid">
+          <label>
+            URL da API
+            <input id="api-url" type="url" placeholder="http://localhost:8080" />
+          </label>
+          <label>
+            Senha ou token
+            <input id="api-key" type="password" placeholder="Opcional" autocomplete="current-password" />
+          </label>
+          <label>
+            Atualizacao
+            <select id="refresh-interval">
+              <option value="0">Manual</option>
+              <option value="5000">5 segundos</option>
+              <option value="10000">10 segundos</option>
+              <option value="30000">30 segundos</option>
+              <option value="60000">1 minuto</option>
+            </select>
+          </label>
+        </section>
+        <footer class="modal-footer">
+          <button id="save-config" class="primary-button" value="default" type="submit">Salvar</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <aside id="widget-palette" class="widget-palette" aria-hidden="true">
+      <header>
         <div>
-          <h2 id="modal-title">Processo</h2>
-          <p id="modal-copy">-</p>
+          <h2>Adicionar elemento</h2>
+          <p>Arraste para o grid de metricas.</p>
         </div>
-        <button id="modal-close" type="button">Fechar</button>
+      </header>
+      <div id="widget-palette-list" class="widget-palette-list"></div>
+    </aside>
+
+    <dialog id="widget-editor-modal" class="modal widget-editor-modal">
+      <form method="dialog" class="modal-shell">
+        <header class="modal-header">
+          <div>
+            <h2 id="widget-editor-title">Editar widget</h2>
+            <p>Configure a consulta e visualize o resultado antes de salvar.</p>
+          </div>
+          <button id="widget-editor-close" class="plain-button" value="cancel" type="submit" aria-label="Fechar">x</button>
+        </header>
+        <section class="modal-content widget-editor-content">
+          <div class="widget-editor-grid">
+            <label>
+              Titulo
+              <input id="widget-title-input" type="text" placeholder="Processamentos com sucesso" />
+            </label>
+            <label>
+              Tipo
+              <select id="widget-type-input">
+                <option value="bar">Bar chart</option>
+                <option value="pie">Pie chart</option>
+                <option value="point">Point plot</option>
+                <option value="query_value">Query value</option>
+                <option value="table">Table</option>
+                <option value="timeseries">Timeseries</option>
+                <option value="top_list">Top list</option>
+              </select>
+            </label>
+          </div>
+          <label class="query-editor-field">
+            Query
+            <textarea id="widget-query-input" spellcheck="false" placeholder="count:processes{status:completed}.rollup(count, 60)"></textarea>
+          </label>
+          <div class="query-help">
+            Exemplos: <code>count:processes{*}</code>, <code>count:processes{status:failed}</code>, <code>count:reprocesses{*}</code>, <code>avg:duration_ms{status:completed}</code>, <code>top:workflow{status:failed}</code>
+          </div>
+          <section class="widget-preview">
+            <header>
+              <strong>Preview</strong>
+              <button id="widget-preview-refresh" type="button">Atualizar preview</button>
+            </header>
+            <div id="widget-preview-body"></div>
+          </section>
+        </section>
+        <footer class="modal-footer">
+          <button id="widget-save" class="primary-button" value="default" type="submit">Salvar</button>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog id="process-modal" class="modal process-modal">
+      <div class="modal-shell">
+        <header class="modal-header">
+          <div>
+            <h2 id="modal-title">Processo</h2>
+            <p id="modal-copy">-</p>
+          </div>
+          <button id="modal-close" class="plain-button" type="button" aria-label="Fechar">x</button>
+        </header>
+        <section id="modal-body" class="modal-content"></section>
       </div>
-      <div id="modal-body" class="modal-body"></div>
     </dialog>
 
     <script src="./app.js"></script>

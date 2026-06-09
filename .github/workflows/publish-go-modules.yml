@@ -1,0 +1,96 @@
+name: Publish Go Modules
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOWORK: "off"
+
+concurrency:
+  group: publish-go-modules-main
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate modules
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [agent, service]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache: false
+      - name: Validate module and tests
+        working-directory: ${{ matrix.module }}
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+          go test ./...
+          go vet ./...
+
+  publish:
+    name: Tag and publish modules
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Create and push semantic version tags
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          for module_dir in agent service; do
+            existing="$(git tag --points-at HEAD --list "${module_dir}/v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n 1)"
+            if [ -n "$existing" ]; then
+              version="${existing#${module_dir}/}"
+            else
+              latest="$(git tag --list "${module_dir}/v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n 1)"
+              if [ -z "$latest" ]; then
+                version="v0.1.0"
+              else
+                current="${latest#${module_dir}/v}"
+                IFS=. read -r major minor patch <<< "$current"
+                version="v${major}.${minor}.$((patch + 1))"
+              fi
+              tag="${module_dir}/${version}"
+              git tag -a "$tag" -m "Release $tag"
+              echo "$tag" >> new-tags.txt
+            fi
+            echo "${module_dir}=${version}" >> versions.env
+          done
+          if [ -s new-tags.txt ]; then
+            git push origin $(cat new-tags.txt)
+          fi
+
+      - name: Request modules from Go proxy
+        shell: bash
+        run: |
+          source versions.env
+          for module_dir in agent service; do
+            version="${!module_dir}"
+            module="$(cd "$module_dir" && go list -m)"
+            curl --fail --retry 12 --retry-delay 10 \
+              "https://proxy.golang.org/${module}/@v/${version}.info"
+            curl --silent --show-error --location \
+              "https://pkg.go.dev/${module}@${version}" >/dev/null || true
+          done

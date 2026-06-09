@@ -2,8 +2,6 @@
 agent/agent
 service/service
 testapp/generator
-
-.gocache
 .terraform/
 *.tfstate
 *.tfstate.*

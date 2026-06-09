@@ -9,10 +9,10 @@ import (
 	"os/signal"
 	"time"
 
-	"custom-business-metrics/service/internal/adapters/dynamodbstore"
-	"custom-business-metrics/service/internal/adapters/httpapi"
-	"custom-business-metrics/service/internal/adapters/memory"
-	"custom-business-metrics/service/internal/application"
+	"github.com/raywall/custom-business-metrics/service/internal/adapters/dynamodbstore"
+	"github.com/raywall/custom-business-metrics/service/internal/adapters/httpapi"
+	"github.com/raywall/custom-business-metrics/service/internal/adapters/memory"
+	"github.com/raywall/custom-business-metrics/service/internal/application"
 )
 
 // main starts the Custom Business Metrics service.

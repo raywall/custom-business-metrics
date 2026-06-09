@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
-	"custom-business-metrics/agent/internal/collector"
-	"custom-business-metrics/agent/internal/forwarder"
+	"github.com/raywall/custom-business-metrics/agent/internal/collector"
+	"github.com/raywall/custom-business-metrics/agent/internal/forwarder"
 )
 
 // main starts the UDP agent and HTTP forwarder.

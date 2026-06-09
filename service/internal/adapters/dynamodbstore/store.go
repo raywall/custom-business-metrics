@@ -14,7 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
-	"custom-business-metrics/service/internal/core"
+	"github.com/raywall/custom-business-metrics/service/internal/core"
 )
 
 // Store persists metrics in DynamoDB and keeps dashboard definitions in memory for the MVP.
@@ -34,6 +34,7 @@ type storedMetric struct {
 	TimestampUnix int64  `dynamodbav:"timestamp_unix"`
 	ExpiresAt     int64  `dynamodbav:"expires_at"`
 	CorrelationID string `dynamodbav:"correlation_id,omitempty"`
+	TraceID       string `dynamodbav:"trace_id,omitempty"`
 	EventJSON     string `dynamodbav:"event_json"`
 }
 
@@ -75,6 +76,7 @@ func (s *Store) SaveMetrics(ctx context.Context, events []core.MetricEvent, rete
 			TimestampUnix: event.Timestamp.Unix(),
 			ExpiresAt:     expiresAt.Unix(),
 			CorrelationID: event.Tags["correlation_id"],
+			TraceID:       event.TraceID,
 			EventJSON:     string(body),
 		})
 		if err != nil {
@@ -239,6 +241,9 @@ func (s *Store) DeleteDashboard(_ context.Context, id string) error {
 }
 
 func (s *Store) scanEvents(ctx context.Context, filter core.MetricFilter) ([]core.MetricEventRecord, error) {
+	if filter.Tags["trace_id"] != "" {
+		return s.queryTraceEvents(ctx, filter)
+	}
 	if filter.Tags["correlation_id"] != "" {
 		return s.queryCorrelationEvents(ctx, filter)
 	}
@@ -277,16 +282,24 @@ func (s *Store) scanEvents(ctx context.Context, filter core.MetricFilter) ([]cor
 }
 
 func (s *Store) queryCorrelationEvents(ctx context.Context, filter core.MetricFilter) ([]core.MetricEventRecord, error) {
+	return s.queryIndexedEvents(ctx, filter, "correlation-index", "correlation_id", filter.Tags["correlation_id"])
+}
+
+func (s *Store) queryTraceEvents(ctx context.Context, filter core.MetricFilter) ([]core.MetricEventRecord, error) {
+	return s.queryIndexedEvents(ctx, filter, "trace-index", "trace_id", filter.Tags["trace_id"])
+}
+
+func (s *Store) queryIndexedEvents(ctx context.Context, filter core.MetricFilter, indexName, keyName, keyValue string) ([]core.MetricEventRecord, error) {
 	now := time.Now().UTC()
 	out := []core.MetricEventRecord{}
 	var startKey map[string]types.AttributeValue
 	for {
 		resp, err := s.client.Query(ctx, &dynamodb.QueryInput{
 			TableName:              aws.String(s.table),
-			IndexName:              aws.String("correlation-index"),
-			KeyConditionExpression: aws.String("correlation_id = :correlation_id"),
+			IndexName:              aws.String(indexName),
+			KeyConditionExpression: aws.String(keyName + " = :value"),
 			ExpressionAttributeValues: map[string]types.AttributeValue{
-				":correlation_id": &types.AttributeValueMemberS{Value: filter.Tags["correlation_id"]},
+				":value": &types.AttributeValueMemberS{Value: keyValue},
 			},
 			ExclusiveStartKey: startKey,
 		})

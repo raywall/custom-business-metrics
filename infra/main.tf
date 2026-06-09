@@ -104,6 +104,11 @@ resource "aws_dynamodb_table" "metrics" {
   }
 
   attribute {
+    name = "trace_id"
+    type = "S"
+  }
+
+  attribute {
     name = "timestamp"
     type = "S"
   }
@@ -111,6 +116,13 @@ resource "aws_dynamodb_table" "metrics" {
   global_secondary_index {
     name            = "correlation-index"
     hash_key        = "correlation_id"
+    range_key       = "timestamp"
+    projection_type = "ALL"
+  }
+
+  global_secondary_index {
+    name            = "trace-index"
+    hash_key        = "trace_id"
     range_key       = "timestamp"
     projection_type = "ALL"
   }

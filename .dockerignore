@@ -1,0 +1,11 @@
+.git
+.gocache
+.DS_Store
+*.log
+coverage.out
+tmp
+dist
+bin
+agent/agent
+service/service
+testapp/generator
