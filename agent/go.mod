@@ -1,3 +1,3 @@
-module custom-business-metrics/agent
+module github.com/raywall/custom-business-metrics/agent
 
-go 1.22
+go 1.24

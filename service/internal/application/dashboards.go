@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"custom-business-metrics/service/internal/core"
+	"github.com/raywall/custom-business-metrics/service/internal/core"
 )
 
 // DashboardService coordinates dashboard management use cases.

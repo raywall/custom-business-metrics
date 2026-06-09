@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"custom-business-metrics/service/internal/adapters/memory"
-	"custom-business-metrics/service/internal/core"
+	"github.com/raywall/custom-business-metrics/service/internal/adapters/memory"
+	"github.com/raywall/custom-business-metrics/service/internal/core"
 )
 
 func TestMetricServiceIngestAndSummaries(t *testing.T) {

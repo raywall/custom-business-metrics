@@ -3,7 +3,7 @@ package application
 import (
 	"sync"
 
-	"custom-business-metrics/service/internal/core"
+	"github.com/raywall/custom-business-metrics/service/internal/core"
 )
 
 // ConfigService stores runtime configuration for the MVP.

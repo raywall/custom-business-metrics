@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"custom-business-metrics/service/internal/core"
+	"github.com/raywall/custom-business-metrics/service/internal/core"
 )
 
 // MetricRepository stores metric events and serves aggregated views.

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"custom-business-metrics/service/internal/application"
-	"custom-business-metrics/service/internal/core"
+	"github.com/raywall/custom-business-metrics/service/internal/application"
+	"github.com/raywall/custom-business-metrics/service/internal/core"
 )
 
 // Server owns the HTTP routes for the service.

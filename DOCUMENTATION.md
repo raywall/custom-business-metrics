@@ -379,3 +379,26 @@ Sugestoes padrao do planner incluem:
 | `workflow_idempotent_skip_total` | Etapas ignoradas por idempotencia. |
 
 Essas sugestoes nao substituem desenho de dashboard. Elas funcionam como ponto de partida para garantir rastreabilidade, explicabilidade e comparacao entre execucao original e reprocessamento.
+
+## Publicacao dos modulos Go
+
+O repositorio possui dois modulos publicaveis:
+
+| Componente | Caminho do modulo | Convencao da tag |
+|---|---|---|
+| Agent | `github.com/raywall/custom-business-metrics/agent` | `agent/vX.Y.Z` |
+| Service | `github.com/raywall/custom-business-metrics/service` | `service/vX.Y.Z` |
+
+Pull requests para `main` validam ambos os modulos com `go mod tidy`, testes e `go vet`. Depois do
+merge, o workflow `Publish Go Modules` incrementa automaticamente a versao patch de cada modulo,
+publica as tags e solicita as versoes ao Go Module Proxy para indexacao no `pkg.go.dev`.
+
+Exemplo de consumo:
+
+```bash
+go get github.com/raywall/custom-business-metrics/agent@latest
+go get github.com/raywall/custom-business-metrics/service@latest
+```
+
+As tags usam o prefixo do subdiretorio porque essa e a convencao exigida pelo ecossistema Go para
+modulos que nao ficam na raiz do repositorio.
