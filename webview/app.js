@@ -442,6 +442,8 @@ function renderHourlyChart() {
   context.fillText("0", 16, pad.top + height + 4);
 }
 
+
+
 function hourlyBuckets(processes) {
   const window = hourlyChartWindow();
   const from = floorHour(new Date(window.from));
