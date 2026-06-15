@@ -89,8 +89,29 @@ jobs:
           for module_dir in agent service; do
             version="${!module_dir}"
             module="$(cd "$module_dir" && go list -m)"
-            curl --fail --retry 12 --retry-delay 10 \
-              "https://proxy.golang.org/${module}/@v/${version}.info"
+
+            echo "Validating ${module}@${version} directly from Git..."
+            GOPROXY=direct go list -m "${module}@${version}"
+
+            available=false
+            for attempt in $(seq 1 12); do
+              latest="$(curl --fail --silent --show-error \
+                "https://proxy.golang.org/${module}/@latest" || true)"
+              if echo "$latest" | grep -q "\"Version\":\"${version}\""; then
+                available=true
+                break
+              fi
+              echo "Go proxy has not indexed ${module}@${version} yet (attempt ${attempt}/12)."
+              sleep 10
+            done
+
+            if [ "$available" != true ]; then
+              echo "::warning::${module}@${version} is valid in Git but is still propagating to the Go proxy."
+            fi
+
+            curl --fail --silent --show-error \
+              "https://proxy.golang.org/${module}/@v/${version}.mod" >/dev/null || \
+              echo "::warning::Version metadata is not available yet for ${module}@${version}."
             curl --silent --show-error --location \
               "https://pkg.go.dev/${module}@${version}" >/dev/null || true
           done
