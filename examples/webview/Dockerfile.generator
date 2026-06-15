@@ -1,0 +1,11 @@
+FROM golang:1.24-alpine AS build
+
+WORKDIR /src
+COPY testapp/go.mod ./
+COPY testapp ./
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/generator ./cmd/generator
+
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates && update-ca-certificates
+COPY --from=build /out/generator /usr/local/bin/metrics-generator
+ENTRYPOINT ["/usr/local/bin/metrics-generator"]

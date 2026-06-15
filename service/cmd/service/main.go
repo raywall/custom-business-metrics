@@ -10,28 +10,27 @@ import (
 	"time"
 
 	metricsservice "github.com/raywall/custom-business-metrics/service"
-	"github.com/raywall/custom-business-metrics/service/internal/adapters/dynamodbstore"
-	"github.com/raywall/custom-business-metrics/service/internal/adapters/httpapi"
-	"github.com/raywall/custom-business-metrics/service/internal/adapters/memory"
-	"github.com/raywall/custom-business-metrics/service/internal/application"
 )
 
 // main starts the Custom Business Metrics service.
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	addr := env("SERVICE_ADDR", ":8080")
-	configService := application.NewConfigService(envInt("RETENTION_DAYS", 7))
-
-	store, err := buildStore(context.Background(), logger)
+	metricsAPI, err := metricsservice.New(context.Background(), metricsservice.Config{
+		StorageBackend: env("STORAGE_BACKEND", metricsservice.StorageMemory),
+		RetentionDays:  envInt("RETENTION_DAYS", 7),
+		DynamoDBTable:  env("DYNAMODB_TABLE", "custom-business-metrics-events"),
+		AWSRegion:      env("AWS_REGION", "us-east-1"),
+		DynamoEndpoint: env("DYNAMODB_ENDPOINT", ""),
+		Logger:         logger,
+	})
 	if err != nil {
 		logger.Error("storage initialization failed", "error", err)
 		os.Exit(1)
 	}
-	metricService := application.NewMetricService(store, configService)
-	dashboardService := application.NewDashboardService(store)
 	server := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.NewServer(metricService, dashboardService, configService, logger).Handler(),
+		Handler:           metricsAPI.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	mcp, err := metricsservice.NewMCPServer(metricsservice.MCPConfig{
@@ -91,21 +90,4 @@ func envInt(key string, fallback int) int {
 		return fallback
 	}
 	return parsed
-}
-
-func buildStore(ctx context.Context, logger *slog.Logger) (interface {
-	application.MetricRepository
-	application.DashboardRepository
-}, error) {
-	if env("STORAGE_BACKEND", "memory") != "dynamodb" {
-		logger.Info("storage selected", "backend", "memory")
-		return memory.NewStore(), nil
-	}
-	logger.Info("storage selected", "backend", "dynamodb")
-	return dynamodbstore.NewStore(
-		ctx,
-		env("DYNAMODB_TABLE", "custom-business-metrics-events"),
-		env("AWS_REGION", "us-east-1"),
-		env("DYNAMODB_ENDPOINT", ""),
-	)
 }

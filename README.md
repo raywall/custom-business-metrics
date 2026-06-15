@@ -125,6 +125,19 @@ O ponto principal: as tags sao livres. A plataforma nao precisa conhecer previam
 
 ## Estrutura do Projeto
 
+Os exemplos executaveis ficam em [`examples`](./examples):
+
+- `importable-agent`: instrumentacao de uma aplicacao Go;
+- `importable-service`: inicializacao da API HTTP como biblioteca;
+- `webview`: stack completa com service, agent, gerador e interface.
+
+```bash
+make examples-test
+make example-service
+make example-agent
+make example-webview
+```
+
 ```text
 .
 ├── agent

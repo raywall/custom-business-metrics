@@ -412,6 +412,19 @@ go get github.com/raywall/custom-business-metrics/service@latest
 As tags usam o prefixo do subdiretorio porque essa e a convencao exigida pelo ecossistema Go para
 modulos que nao ficam na raiz do repositorio.
 
+## Exemplos executaveis
+
+O diretorio `examples` apresenta como instanciar, integrar e provisionar cada componente:
+
+| Exemplo | Finalidade |
+|---|---|
+| `examples/importable-agent` | Instrumentar uma aplicacao Go com buffer e envio assincrono de metricas. |
+| `examples/importable-service` | Instanciar a API HTTP com storage em memoria ou DynamoDB. |
+| `examples/webview` | Provisionar service, agent, gerador e webview com Docker Compose. |
+
+Os exemplos importaveis usam `replace` apenas para testar o codigo local antes da publicacao. Em uma
+aplicacao externa, remova o `replace` e use a versao publicada pelo Go Module Proxy.
+
 ## Agent importavel
 
 O agent pode ser executado como processo independente ou instanciado dentro de
@@ -432,6 +445,46 @@ O metodo `Emit(ctx, event)` aceita eventos serializaveis. Isso permite que
 `routing-slip-pattern`, `go-graphql-connector` e outras aplicacoes compartilhem
 a mesma instancia sem acoplamento com o armazenamento. Falhas temporarias
 mantem o lote no buffer para uma nova tentativa no proximo ciclo de flush.
+Durante o shutdown, `Close()` drena todos os eventos aceitos antes de realizar
+o envio final.
+
+## Service importavel
+
+O service expoe sua API HTTP como `http.Handler`, permitindo montar a solucao em um servidor
+existente, ECS, EKS, Lambda com adapter HTTP, ALB ou API Gateway.
+
+```go
+metricsAPI, err := metrics.New(ctx, metrics.Config{
+	StorageBackend: metrics.StorageMemory,
+	RetentionDays:  7,
+})
+if err != nil {
+	return err
+}
+
+http.Handle("/metrics/", http.StripPrefix("/metrics", metricsAPI.Handler()))
+```
+
+Para DynamoDB:
+
+```go
+metricsAPI, err := metrics.New(ctx, metrics.Config{
+	StorageBackend: metrics.StorageDynamoDB,
+	DynamoDBTable:  "custom-business-metrics-events",
+	AWSRegion:      "us-east-1",
+	DynamoEndpoint: "http://localhost:4566",
+	RetentionDays:  30,
+})
+```
+
+## Webview provisionavel
+
+O webview e uma aplicacao estatica que consulta a API do service. Ele pode ser servido por Nginx,
+CDN, S3 com CloudFront ou pelo container demonstrado em `examples/webview`.
+
+Depois de abrir o webview, configure a URL publica da API e, quando aplicavel, o token de acesso no
+botao de configuracao. O layout de widgets e as preferencias da interface ficam no `localStorage`
+do navegador.
 
 ## MCP Analytics
 
