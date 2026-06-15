@@ -397,6 +397,11 @@ ao Go Module Proxy para indexacao no `pkg.go.dev`.
 Tags `v0.x.x` anteriores permanecem como historico. A linha `v1.x.x` representa o contrato publico
 estavel usado por novas aplicacoes.
 
+Depois de criar as tags, a Action valida cada versao diretamente no Git e aguarda a indexacao pelo
+Go Module Proxy. Como o proxy possui consistencia eventual e pode armazenar temporariamente uma
+resposta `404` logo apos o push, atrasos de indexacao geram um aviso sem invalidar uma release cuja
+tag ja foi validada.
+
 Exemplo de consumo:
 
 ```bash
