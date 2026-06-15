@@ -402,3 +402,36 @@ go get github.com/raywall/custom-business-metrics/service@latest
 
 As tags usam o prefixo do subdiretorio porque essa e a convencao exigida pelo ecossistema Go para
 modulos que nao ficam na raiz do repositorio.
+
+## Agent importavel
+
+O agent pode ser executado como processo independente ou instanciado dentro de
+uma aplicacao:
+
+```go
+agent, err := metrics.New(metrics.Config{
+	ServiceEndpoint: "http://metrics-service:8080/v1/metrics",
+	BatchSize:       100,
+	BufferSize:      5000,
+	FlushInterval:   time.Second,
+})
+go agent.Run(ctx)
+defer agent.Close()
+```
+
+O metodo `Emit(ctx, event)` aceita eventos serializaveis. Isso permite que
+`routing-slip-pattern`, `go-graphql-connector` e outras aplicacoes compartilhem
+a mesma instancia sem acoplamento com o armazenamento. Falhas temporarias
+mantem o lote no buffer para uma nova tentativa no proximo ciclo de flush.
+
+## MCP Analytics
+
+O metrics service disponibiliza um MCP Analytics read-only em `MCP_ADDR`
+(`:9093` por padrao). Defina `MCP_SERVER_API_KEY` para proteger o endpoint.
+
+| Tool | Uso |
+|---|---|
+| `find_processes` | Busca execucoes por filtros operacionais. |
+| `get_execution_by_correlation` | Recupera a jornada por `correlation_id`. |
+| `get_execution_by_trace` | Recupera eventos tecnicos por `trace_id`. |
+| `get_workflow_summary` | Retorna metricas agregadas por workflow e periodo. |

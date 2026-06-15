@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"time"
 
+	metricsservice "github.com/raywall/custom-business-metrics/service"
 	"github.com/raywall/custom-business-metrics/service/internal/adapters/dynamodbstore"
 	"github.com/raywall/custom-business-metrics/service/internal/adapters/httpapi"
 	"github.com/raywall/custom-business-metrics/service/internal/adapters/memory"
@@ -33,6 +34,20 @@ func main() {
 		Handler:           httpapi.NewServer(metricService, dashboardService, configService, logger).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	mcp, err := metricsservice.NewMCPServer(metricsservice.MCPConfig{
+		MetricsEndpoint: "http://localhost" + addr,
+		APIKey:          env("MCP_METRICS_API_KEY", ""),
+		ServerAPIKey:    env("MCP_SERVER_API_KEY", ""),
+	})
+	if err != nil {
+		logger.Error("mcp initialization failed", "error", err)
+		os.Exit(1)
+	}
+	mcpServer := &http.Server{
+		Addr:              env("MCP_ADDR", ":9093"),
+		Handler:           mcp.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -44,11 +59,18 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	go func() {
+		logger.Info("mcp analytics started", "addr", mcpServer.Addr)
+		if err := mcpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("mcp analytics failed", "error", err)
+		}
+	}()
 
 	<-ctx.Done()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownCtx)
+	_ = mcpServer.Shutdown(shutdownCtx)
 	logger.Info("service stopped")
 }
 
