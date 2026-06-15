@@ -185,12 +185,10 @@ async function refreshData() {
     const [records, chartRecords] = await Promise.all([
       getJSON("/v1/metrics/events", {
         ...window,
-        source: "routing-slip-app",
         limit: 1000,
       }),
       getJSON("/v1/metrics/events", {
         ...chartWindow,
-        source: "routing-slip-app",
         limit: 5000,
       }),
     ]);
@@ -208,6 +206,7 @@ function groupProcessEvents(records) {
   const groups = new Map();
   records.forEach((record) => {
     const event = record.event || record;
+    if (!String(event.name || "").startsWith("routing_slip.")) return;
     const tags = event.tags || {};
     const key = tags.correlation_id || tags.message_id || event.trace_id || record.id || `${event.workflow}-${event.timestamp}`;
     if (!groups.has(key)) {
