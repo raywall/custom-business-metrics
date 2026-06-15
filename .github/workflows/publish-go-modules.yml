@@ -60,13 +60,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           for module_dir in agent service; do
-            existing="$(git tag --points-at HEAD --list "${module_dir}/v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n 1)"
+            existing="$(git tag --points-at HEAD --list "${module_dir}/v*" --sort=-v:refname | grep -E "^${module_dir}/v[1-9][0-9]*\\.[0-9]+\\.[0-9]+$" | head -n 1 || true)"
             if [ -n "$existing" ]; then
               version="${existing#${module_dir}/}"
             else
-              latest="$(git tag --list "${module_dir}/v[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | head -n 1)"
+              latest="$(git tag --list "${module_dir}/v*" --sort=-v:refname | grep -E "^${module_dir}/v[1-9][0-9]*\\.[0-9]+\\.[0-9]+$" | head -n 1 || true)"
               if [ -z "$latest" ]; then
-                version="v0.1.0"
+                version="v1.0.0"
               else
                 current="${latest#${module_dir}/v}"
                 IFS=. read -r major minor patch <<< "$current"

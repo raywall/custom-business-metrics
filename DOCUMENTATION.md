@@ -391,7 +391,11 @@ O repositorio possui dois modulos publicaveis:
 
 Pull requests para `main` validam ambos os modulos com `go mod tidy`, testes e `go vet`. Depois do
 merge, o workflow `Publish Go Modules` incrementa automaticamente a versao patch de cada modulo,
-publica as tags e solicita as versoes ao Go Module Proxy para indexacao no `pkg.go.dev`.
+iniciando a linha estavel em `agent/v1.0.0` e `service/v1.0.0`, publica as tags e solicita as versoes
+ao Go Module Proxy para indexacao no `pkg.go.dev`.
+
+Tags `v0.x.x` anteriores permanecem como historico. A linha `v1.x.x` representa o contrato publico
+estavel usado por novas aplicacoes.
 
 Exemplo de consumo:
 
