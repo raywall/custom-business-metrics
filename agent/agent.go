@@ -68,6 +68,17 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		batch = batch[:0]
 	}
+	drainAndFlush := func() {
+		for {
+			select {
+			case event := <-a.events:
+				batch = append(batch, event)
+			default:
+				flush()
+				return
+			}
+		}
+	}
 	for {
 		select {
 		case event := <-a.events:
@@ -82,10 +93,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-ticker.C:
 			flush()
 		case <-a.done:
-			flush()
+			drainAndFlush()
 			return nil
 		case <-ctx.Done():
-			flush()
+			drainAndFlush()
 			return ctx.Err()
 		}
 	}

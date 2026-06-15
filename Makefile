@@ -1,4 +1,4 @@
-.PHONY: help run start stop restart logs build test fmt service agent generator webview compose-up compose-down terraform-init terraform-plan
+.PHONY: help run start stop restart logs build test fmt service agent generator webview examples-test example-service example-agent example-webview example-webview-down compose-up compose-down terraform-init terraform-plan
 
 COMPOSE ?= docker compose
 SERVICE_ADDR ?= :8080
@@ -18,6 +18,10 @@ help:
 	@printf "  make service         Run service locally\n"
 	@printf "  make agent           Run agent locally\n"
 	@printf "  make generator       Run synthetic metric generator locally\n"
+	@printf "  make examples-test   Validate the importable examples\n"
+	@printf "  make example-service Run the importable service example\n"
+	@printf "  make example-agent   Send metrics with the importable agent example\n"
+	@printf "  make example-webview Start the complete examples/webview stack\n"
 	@printf "  make terraform-plan  Plan AWS infrastructure using infra/config/dev.tfvars\n"
 
 run: compose-up
@@ -65,6 +69,22 @@ generator:
 
 webview:
 	python3 -m http.server 5173 --directory webview
+
+examples-test:
+	$(GOENV) go -C examples/importable-agent test ./...
+	$(GOENV) go -C examples/importable-service test ./...
+
+example-service:
+	$(GOENV) go -C examples/importable-service run .
+
+example-agent:
+	$(GOENV) go -C examples/importable-agent run .
+
+example-webview:
+	$(COMPOSE) -f examples/webview/docker-compose.yml up --build
+
+example-webview-down:
+	$(COMPOSE) -f examples/webview/docker-compose.yml down
 
 terraform-init:
 	terraform -chdir=infra init

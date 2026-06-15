@@ -1,0 +1,42 @@
+services:
+  metrics-service:
+    build:
+      context: ../../service
+    environment:
+      SERVICE_ADDR: ":8080"
+      STORAGE_BACKEND: memory
+      RETENTION_DAYS: "7"
+    ports:
+      - "8080:8080"
+      - "9093:9093"
+
+  metrics-agent:
+    build:
+      context: ../../agent
+    environment:
+      AGENT_UDP_ADDR: ":8125"
+      SERVICE_INGEST_URL: http://metrics-service:8080/v1/metrics
+      AGENT_BATCH_SIZE: "10"
+      AGENT_FLUSH_INTERVAL: 1s
+    ports:
+      - "8125:8125/udp"
+    depends_on:
+      - metrics-service
+
+  metrics-generator:
+    build:
+      context: ../..
+      dockerfile: examples/webview/Dockerfile.generator
+    environment:
+      AGENT_UDP_ADDR: metrics-agent:8125
+      GENERATOR_RATE_PER_SECOND: "4"
+    depends_on:
+      - metrics-agent
+
+  metrics-webview:
+    build:
+      context: ../../webview
+    ports:
+      - "5173:80"
+    depends_on:
+      - metrics-service
