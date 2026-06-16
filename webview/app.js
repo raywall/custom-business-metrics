@@ -204,14 +204,17 @@ async function refreshData() {
 
 function groupProcessEvents(records) {
   const groups = new Map();
-  records.forEach((record) => {
-    const event = record.event || record;
+  records
+    .map((record) => ({ record, event: record.event || record }))
+    .sort((a, b) => new Date(a.event.timestamp) - new Date(b.event.timestamp))
+    .forEach(({ record, event }) => {
     if (!String(event.name || "").startsWith("routing_slip.")) return;
     const tags = event.tags || {};
-    const key = tags.correlation_id || tags.message_id || event.trace_id || record.id || `${event.workflow}-${event.timestamp}`;
+    const key = processExecutionKey(record, event, tags);
     if (!groups.has(key)) {
       groups.set(key, {
         id: key,
+        executionKey: key,
         workflow: event.workflow || "-",
         messageId: tags.message_id || "-",
         correlationId: tags.correlation_id || "-",
@@ -236,22 +239,56 @@ function groupProcessEvents(records) {
     group.startedAt = earlier(group.startedAt, event.timestamp);
     group.updatedAt = later(group.updatedAt, event.timestamp);
     Object.assign(group.tags, tags);
-    if (event.name === "routing_slip.step.completed") group.completed += 1;
-    if (event.name === "routing_slip.step.failed") group.failed += 1;
-    if (event.name === "routing_slip.step.stopped") group.stopped += 1;
   });
 
   return [...groups.values()]
     .map((group) => {
-      const expected = group.totalSteps || inferExpectedSteps(group);
-      group.status = group.failed > 0 ? "failed" : group.stopped > 0 ? "stopped" : group.completed >= expected ? "completed" : "running";
-      group.expectedSteps = expected;
-      group.remaining = Math.max(expected - group.completed - group.failed - group.stopped, 0);
-      group.durationMs = Math.max(0, new Date(group.updatedAt) - new Date(group.startedAt));
       group.events.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      summarizeProcessGroup(group);
       return group;
     })
     .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function processExecutionKey(record, event, tags) {
+  const base = tags.correlation_id || tags.message_id || event.workflow || "process";
+  const trace = event.trace_id || tags.trace_id;
+  if (trace) return `${base}::trace:${trace}`;
+  const run = tags.run_id;
+  const attempt = tags.attempt;
+  if (run && attempt) return `${base}::run:${run}::attempt:${attempt}`;
+  if (base !== "process") return `${base}::legacy`;
+  return `process::record:${record.id || event.timestamp}`;
+}
+
+function summarizeProcessGroup(group) {
+  const terminalByStep = new Map();
+  group.events.forEach((event) => {
+    if (!["routing_slip.step.completed", "routing_slip.step.failed", "routing_slip.step.stopped"].includes(event.name)) {
+      return;
+    }
+    const tags = event.tags || {};
+    const key = `${tags.step_index || "0"}:${event.step || tags.handler || event.name}`;
+    const current = terminalByStep.get(key);
+    if (!current || new Date(event.timestamp) >= new Date(current.timestamp)) {
+      terminalByStep.set(key, event);
+    }
+  });
+
+  group.completed = 0;
+  group.failed = 0;
+  group.stopped = 0;
+  terminalByStep.forEach((event) => {
+    if (event.name === "routing_slip.step.completed" || event.status === "success") group.completed += 1;
+    if (event.name === "routing_slip.step.failed" || event.status === "failed") group.failed += 1;
+    if (event.name === "routing_slip.step.stopped" || event.status === "stopped") group.stopped += 1;
+  });
+
+  const expected = group.totalSteps || inferExpectedSteps(group);
+  group.status = group.failed > 0 ? "failed" : group.stopped > 0 ? "stopped" : group.completed >= expected ? "completed" : "running";
+  group.expectedSteps = expected;
+  group.remaining = Math.max(expected - group.completed - group.failed - group.stopped, 0);
+  group.durationMs = Math.max(0, new Date(group.updatedAt) - new Date(group.startedAt));
 }
 
 function inferExpectedSteps(group) {
@@ -442,8 +479,6 @@ function renderHourlyChart() {
   context.fillText("0", 16, pad.top + height + 4);
 }
 
-
-
 function hourlyBuckets(processes) {
   const window = hourlyChartWindow();
   const from = floorHour(new Date(window.from));
@@ -594,7 +629,10 @@ function processSteps(process) {
     if (tags.rule_applied) step.rule = tags.rule_applied;
     if (tags.output_value) step.output = tags.output_value;
     if (tags.failure_reason) step.failure = tags.failure_reason;
-    if (["success", "failed", "stopped"].includes(event.status)) step.status = event.status;
+    if (["success", "failed", "stopped"].includes(event.status)) {
+      step.status = event.status;
+      if (event.status === "success") step.failure = "";
+    }
   });
   return [...groups.values()].sort((a, b) => a.index - b.index || new Date(a.startedAt) - new Date(b.startedAt));
 }
